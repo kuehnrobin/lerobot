@@ -184,3 +184,64 @@ class ACTConfig(PreTrainedConfig):
     @property
     def reward_delta_indices(self) -> None:
         return None
+
+
+@dataclass
+class RobustShortACTConfig(ACTConfig):
+    # Short-horizon settings
+    chunk_size: int = 50
+    n_action_steps: int = 10
+    n_obs_steps: int = 3
+
+    # Temporal ensembling for smoothness
+    temporal_ensemble_coeff: float = 0.01
+
+    # Robust architecture
+    vision_backbone: str = "resnet34"
+    dim_model: int = 512
+    n_heads: int = 8
+    n_encoder_layers: int = 6
+    n_decoder_layers: int = 2
+    dim_feedforward: int = 2048
+
+    # Strong regularization
+    dropout: float = 0.2
+    use_vae: bool = True
+    latent_dim: int = 48
+    kl_weight: float = 20.0
+
+    # Stable normalization
+    normalization_mapping: dict[str, NormalizationMode] = field(
+        default_factory=lambda: {
+            "VISUAL": NormalizationMode.MEAN_STD,
+            "STATE": NormalizationMode.MIN_MAX,
+            "ACTION": NormalizationMode.MIN_MAX,
+        }
+    )
+
+
+@dataclass
+class ACTConfigUnitreeG1(ACTConfig):
+    # Longer task handling
+    chunk_size: int = 300
+    n_action_steps: int = 75
+
+    # Enhanced architecture for multiple cameras
+    vision_backbone: str = "resnet34"
+    dim_model: int = 768
+    n_heads: int = 12
+    dim_feedforward: int = 4096
+    n_encoder_layers: int = 6
+    n_decoder_layers: int = 2
+
+    # VAE adjustments for longer sequences
+    latent_dim: int = 64  # Increase for more complex latent representations
+    n_vae_encoder_layers: int = 6
+
+    # Training adjustments
+    dropout: float = 0.15  # Slightly higher for regularization
+    kl_weight: float = 15.0  # Adjust based on task complexity
+
+    # Lower learning rates for stability with larger model
+    optimizer_lr: float = 5e-6
+    optimizer_lr_backbone: float = 1e-6
