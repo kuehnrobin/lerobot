@@ -21,6 +21,7 @@ from lerobot.configs.types import NormalizationMode
 
 
 
+
 @dataclass
 class ACTConfig(PreTrainedConfig):
     """Configuration class for the Action Chunking Transformers policy.
@@ -202,14 +203,14 @@ class OpenTelevisionACTConfig(ACTConfig):
 class RobustShortACTConfig(ACTConfig):
     # Short-horizon settings
     chunk_size: int = 50
-    n_action_steps: int = 10
-    n_obs_steps: int = 3
+    n_action_steps: int = 1
 
     # Temporal ensembling for smoothness
     temporal_ensemble_coeff: float = 0.01
 
     # Robust architecture
-    vision_backbone: str = "resnet34"
+    # vision_backbone: str = "resnet34"
+    # pretrained_backbone_weights: str | None = "ResNet34_Weights.IMAGENET1K_V1"
     dim_model: int = 512
     n_heads: int = 8
     n_encoder_layers: int = 6
