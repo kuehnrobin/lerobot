@@ -185,6 +185,18 @@ class ACTConfig(PreTrainedConfig):
     def reward_delta_indices(self) -> None:
         return None
 
+@dataclass
+class OpenTelevisionACTConfig(ACTConfig):
+    # Short-horizon settings
+    chunk_size: int = 60
+    n_action_steps: int = 45 #  Todo anpassen
+
+    # Temporal ensembling for smoothness
+    temporal_ensemble_coeff: float = 0.01
+    kl_weight: float = 10.0
+    optimizer_lr: float = 5e-5
+    # epochs 25000
+    # Batch size 45
 
 @dataclass
 class RobustShortACTConfig(ACTConfig):
