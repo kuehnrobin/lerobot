@@ -20,7 +20,7 @@ from lerobot.configs.policies import PreTrainedConfig
 from lerobot.configs.types import NormalizationMode
 
 
-@PreTrainedConfig.register_subclass("act")
+
 @dataclass
 class ACTConfig(PreTrainedConfig):
     """Configuration class for the Action Chunking Transformers policy.
@@ -185,15 +185,15 @@ class ACTConfig(PreTrainedConfig):
     def reward_delta_indices(self) -> None:
         return None
 
+@PreTrainedConfig.register_subclass("act")
 @dataclass
 class OpenTelevisionACTConfig(ACTConfig):
     # Short-horizon settings
     chunk_size: int = 60
-    n_action_steps: int = 45 #  Todo anpassen
-
+    n_action_steps: int = 1 # Wissen wir nicht #  Todo anpassen
+    n_decoder_layers: int = 3
     # Temporal ensembling for smoothness
     temporal_ensemble_coeff: float = 0.01
-    kl_weight: float = 10.0
     optimizer_lr: float = 5e-5
     # epochs 25000
     # Batch size 45
@@ -257,3 +257,10 @@ class ACTConfigUnitreeG1(ACTConfig):
     # Lower learning rates for stability with larger model
     optimizer_lr: float = 5e-6
     optimizer_lr_backbone: float = 1e-6
+
+@dataclass
+class BalancedRobustACTConfig(ACTConfig):
+    # Balanced execution settings
+    chunk_size: int = 60
+    n_action_steps: int = 10  # Compromise between speed and smoothness
+    temporal_ensemble_coeff: float = None  # Disable for more direct control
