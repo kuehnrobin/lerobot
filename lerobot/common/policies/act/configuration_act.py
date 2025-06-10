@@ -64,7 +64,7 @@ class ACTConfig(PreTrainedConfig):
             [-1, 1] range.
         output_normalization_modes: Similar dictionary as `normalize_input_modes`, but to unnormalize to the
             original scale. Note that this is also used for normalizing the training targets.
-        vision_backbone: Name of the torchvision resnet backbone to use for encoding images.
+        vision_backbone: Name of the torchvision resnet backbone to use for encoding images.​
         pretrained_backbone_weights: Pretrained weights from torchvision to initialize the backbone.
             `None` means no pretrained weights.
         replace_final_stride_with_dilation: Whether to replace the ResNet's final 2x2 stride with a dilated
@@ -192,7 +192,7 @@ class OpenTelevisionACTConfig(ACTConfig):
     # Short-horizon settings
     chunk_size: int = 60
     n_action_steps: int = 1 # Wissen wir nicht #  Todo anpassen
-    n_decoder_layers: int = 3
+    n_decoder_layers: int = 7
     # Temporal ensembling for smoothness
     temporal_ensemble_coeff: float = 0.005
     optimizer_lr: float = 5e-5
