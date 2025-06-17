@@ -192,10 +192,10 @@ class OpenTelevisionACTConfig(ACTConfig):
     # Short-horizon settings
     chunk_size: int = 60
     n_action_steps: int = 1 # Wissen wir nicht #  Todo anpassen
-    n_decoder_layers: int = 7
+    n_decoder_layers: int = 3
     # Temporal ensembling for smoothness
     temporal_ensemble_coeff: float = 0.005
-    optimizer_lr: float = 5e-5
+    #optimizer_lr: float = 5e-5
     # epochs 25000
     # Batch size 45
 
