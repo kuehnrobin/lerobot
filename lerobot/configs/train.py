@@ -15,7 +15,7 @@ import datetime as dt
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Type
+from typing import Type, Optional, List
 
 import draccus
 from huggingface_hub import hf_hub_download
@@ -33,10 +33,43 @@ TRAIN_CONFIG_NAME = "train_config.json"
 
 
 @dataclass
+class FeatureSelectionConfig:
+    """Configuration for selecting which features to use during training."""
+
+    # Camera selection
+    cameras: Optional[List[str]] = None  # e.g., ["cam_head_right", "cam_head_left"] or None for all
+    exclude_cameras: Optional[List[str]] = None  # e.g., ["cam_active_left"] to exclude specific cameras
+
+    # State feature selection
+    use_joint_positions: bool = True  # qpos
+    use_joint_velocities: bool = True  # qvel
+    use_joint_torques: bool = False  # torque/effort
+    use_pressure_sensors: bool = True  # pressure data from hands
+
+    # Specific joint group selection
+    joint_groups: Optional[List[str]] = None  # e.g., ["left_arm", "right_arm"] or None for all
+    exclude_joint_groups: Optional[List[str]] = None  # e.g., ["camera"] to exclude camera joints
+
+    # For fine-grained control
+    custom_state_indices: Optional[List[int]] = None  # Manual state dimension selection
+
+    def __post_init__(self):
+        """Validate configuration."""
+        if self.cameras is not None and self.exclude_cameras is not None:
+            raise ValueError("Cannot specify both 'cameras' (include) and 'exclude_cameras' at the same time")
+
+        if self.joint_groups is not None and self.exclude_joint_groups is not None:
+            raise ValueError("Cannot specify both 'joint_groups' (include) and 'exclude_joint_groups' at the same time")
+
+
+@dataclass
 class TrainPipelineConfig(HubMixin):
     dataset: DatasetConfig
     env: envs.EnvConfig | None = None
     policy: PreTrainedConfig | None = None
+
+    # Feature selection configuration
+    feature_selection: FeatureSelectionConfig = field(default_factory=FeatureSelectionConfig)
     # Set `dir` to where you would like to save all of the run outputs. If you run another training session
     # with the same value for `dir` its contents will be overwritten unless you set `resume` to true.
     output_dir: Path | None = None
