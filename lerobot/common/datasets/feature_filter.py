@@ -145,7 +145,7 @@ class FeatureFilter:
         self._filtered_meta = deepcopy(self.meta)
         
         # Update state feature metadata
-        state_dim = np.sum(self._state_mask)
+        state_dim = int(np.sum(self._state_mask))  # Convert to regular Python int
         self._filtered_meta.features["observation.state"]["shape"] = (state_dim,)
         self._filtered_meta.features["observation.state"]["names"] = self._state_feature_names
         
@@ -170,10 +170,18 @@ class FeatureFilter:
                 for stat_key, stat_value in original_state_stats.items():
                     if hasattr(stat_value, '__len__') and len(stat_value) == len(self._state_mask):
                         # This is a per-dimension statistic, filter it
-                        filtered_state_stats[stat_key] = stat_value[self._state_mask]
+                        filtered_value = stat_value[self._state_mask]
+                        # Convert numpy arrays to regular Python lists for JSON serialization
+                        if hasattr(filtered_value, 'tolist'):
+                            filtered_state_stats[stat_key] = filtered_value.tolist()
+                        else:
+                            filtered_state_stats[stat_key] = filtered_value
                     else:
-                        # This is a scalar statistic, keep as-is
-                        filtered_state_stats[stat_key] = stat_value
+                        # This is a scalar statistic, keep as-is but ensure it's JSON serializable
+                        if hasattr(stat_value, 'item'):
+                            filtered_state_stats[stat_key] = stat_value.item()
+                        else:
+                            filtered_state_stats[stat_key] = stat_value
                 original_stats["observation.state"] = filtered_state_stats
             
             # Remove camera statistics for excluded cameras
@@ -291,10 +299,18 @@ def create_filtered_dataset_wrapper(dataset: LeRobotDataset, config: FeatureSele
                     for stat_key, stat_value in original_state_stats.items():
                         if hasattr(stat_value, '__len__') and len(stat_value) == len(self.feature_filter._state_mask):
                             # This is a per-dimension statistic, filter it
-                            filtered_state_stats[stat_key] = stat_value[self.feature_filter._state_mask]
+                            filtered_value = stat_value[self.feature_filter._state_mask]
+                            # Convert numpy arrays to regular Python types for JSON serialization
+                            if hasattr(filtered_value, 'tolist'):
+                                filtered_state_stats[stat_key] = filtered_value.tolist()
+                            else:
+                                filtered_state_stats[stat_key] = filtered_value
                         else:
-                            # This is a scalar statistic, keep as-is
-                            filtered_state_stats[stat_key] = stat_value
+                            # This is a scalar statistic, keep as-is but ensure it's JSON serializable
+                            if hasattr(stat_value, 'item'):
+                                filtered_state_stats[stat_key] = stat_value.item()
+                            else:
+                                filtered_state_stats[stat_key] = stat_value
                     filtered_stats["observation.state"] = filtered_state_stats
                 
                 # Remove camera statistics for excluded cameras
