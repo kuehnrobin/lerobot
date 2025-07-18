@@ -172,8 +172,7 @@ class FeatureFilter:
         # Filter camera observations
         for key, value in batch.items():
             if key.startswith("observation.images."):
-                camera_name = key.replace("observation.images.", "")
-                if camera_name in self._filtered_cameras:
+                if key in self._filtered_cameras:
                     filtered_batch[key] = value
             elif key == "observation.state":
                 # Already handled above
@@ -222,6 +221,10 @@ def create_filtered_dataset_wrapper(dataset: LeRobotDataset, config: FeatureSele
         @property
         def meta(self):
             return self.feature_filter.filtered_meta
+            
+        @property
+        def camera_keys(self):
+            return self.feature_filter.filtered_meta.camera_keys
             
         @property
         def num_frames(self):
