@@ -53,6 +53,69 @@ from lerobot.configs.train import TrainPipelineConfig
 from lerobot.scripts.eval import eval_policy
 
 
+def apply_feature_selection(dataset, feature_config):
+    """Apply feature selection to the dataset based on configuration."""
+    if not hasattr(feature_config, 'use_joint_positions'):
+        # If no feature selection config, return dataset as-is
+        return dataset
+    
+    logging.info("Applying feature selection...")
+    
+    # Camera selection
+    if feature_config.cameras is not None:
+        available_cameras = [k for k in dataset.camera_keys if k.startswith("observation.images.")]
+        selected_cameras = []
+        for cam_name in feature_config.cameras:
+            cam_key = f"observation.images.{cam_name}"
+            if cam_key in available_cameras:
+                selected_cameras.append(cam_key)
+            else:
+                logging.warning(f"Camera '{cam_name}' not found in dataset. Available: {[k.split('.')[-1] for k in available_cameras]}")
+        
+        if selected_cameras:
+            # Filter camera keys
+            dataset.camera_keys = selected_cameras
+            logging.info(f"Selected cameras: {[k.split('.')[-1] for k in selected_cameras]}")
+    
+    elif feature_config.exclude_cameras is not None:
+        available_cameras = [k for k in dataset.camera_keys if k.startswith("observation.images.")]
+        excluded_cameras = [f"observation.images.{cam}" for cam in feature_config.exclude_cameras]
+        selected_cameras = [k for k in available_cameras if k not in excluded_cameras]
+        
+        if selected_cameras:
+            dataset.camera_keys = selected_cameras
+            logging.info(f"Excluded cameras: {feature_config.exclude_cameras}")
+            logging.info(f"Remaining cameras: {[k.split('.')[-1] for k in selected_cameras]}")
+    
+    # State feature selection
+    original_state_dim = None
+    if hasattr(dataset, 'meta') and hasattr(dataset.meta, 'info') and 'state_dim' in dataset.meta.info:
+        original_state_dim = dataset.meta.info['state_dim']
+        logging.info(f"Original state dimension: {original_state_dim}")
+    
+    # Apply state feature filtering if needed
+    state_features_modified = not all([
+        feature_config.use_joint_positions,
+        feature_config.use_joint_velocities,
+        feature_config.use_joint_torques,
+        feature_config.use_pressure_sensors
+    ])
+    
+    if state_features_modified or feature_config.joint_groups is not None or feature_config.exclude_joint_groups is not None:
+        logging.info("State feature selection enabled:")
+        logging.info(f"  - Joint positions: {feature_config.use_joint_positions}")
+        logging.info(f"  - Joint velocities: {feature_config.use_joint_velocities}")
+        logging.info(f"  - Joint torques: {feature_config.use_joint_torques}")
+        logging.info(f"  - Pressure sensors: {feature_config.use_pressure_sensors}")
+        
+        if feature_config.joint_groups:
+            logging.info(f"  - Joint groups: {feature_config.joint_groups}")
+        if feature_config.exclude_joint_groups:
+            logging.info(f"  - Excluded joint groups: {feature_config.exclude_joint_groups}")
+    
+    return dataset
+
+
 def update_policy(
     train_metrics: MetricsTracker,
     policy: PreTrainedPolicy,
@@ -126,6 +189,9 @@ def train(cfg: TrainPipelineConfig):
 
     logging.info("Creating dataset")
     dataset = make_dataset(cfg)
+    
+    # Apply feature selection
+    dataset = apply_feature_selection(dataset, cfg.feature_selection)
 
     # Create environment used for evaluating checkpoints during training on simulation data.
     # On real-world data, no need to create an environment as evaluations are done outside train.py,
