@@ -81,18 +81,29 @@ class FeatureFilter:
         state_names = self.meta.features["observation.state"]["names"]
         total_dims = len(state_names)
         
+        # Get the actual state shape from the dataset to ensure compatibility
+        actual_state_shape = self.meta.features["observation.state"]["shape"]
+        actual_dims = actual_state_shape[0] if actual_state_shape else total_dims
+        
+        logger.info(f"State names suggest {total_dims} dimensions, actual state shape: {actual_dims}")
+        
         if self.config.custom_state_indices is not None:
             # Use custom indices
-            self._state_mask = np.zeros(total_dims, dtype=bool)
-            self._state_mask[self.config.custom_state_indices] = True
-            self._state_feature_names = [state_names[i] for i in self.config.custom_state_indices]
+            self._state_mask = np.zeros(actual_dims, dtype=bool)
+            valid_indices = [i for i in self.config.custom_state_indices if i < actual_dims]
+            self._state_mask[valid_indices] = True
+            self._state_feature_names = [state_names[i] for i in valid_indices if i < len(state_names)]
             
         else:
             # Build mask based on feature types
-            mask = np.ones(total_dims, dtype=bool)
+            mask = np.ones(actual_dims, dtype=bool)
             filtered_names = []
             
-            for i, name in enumerate(state_names):
+            # Only process up to the minimum of available names and actual dimensions
+            process_dims = min(len(state_names), actual_dims)
+            
+            for i in range(process_dims):
+                name = state_names[i] if i < len(state_names) else f"state_{i}"
                 include = True
                 
                 # Check joint group filtering
@@ -115,11 +126,16 @@ class FeatureFilter:
                 mask[i] = include
                 if include:
                     filtered_names.append(name)
+            
+            # If there are extra dimensions beyond the named ones, include them by default
+            for i in range(process_dims, actual_dims):
+                mask[i] = True
+                filtered_names.append(f"state_{i}")
                     
             self._state_mask = mask
             self._state_feature_names = filtered_names
             
-        logger.info(f"Using {np.sum(self._state_mask)}/{total_dims} state dimensions")
+        logger.info(f"Using {np.sum(self._state_mask)}/{actual_dims} state dimensions")
         logger.info(f"Filtered state features: {self._state_feature_names[:10]}...")  # Show first 10
         
     def _create_filtered_meta(self):
@@ -166,7 +182,20 @@ class FeatureFilter:
         # Filter state observations
         if "observation.state" in batch:
             original_state = batch["observation.state"]
-            filtered_state = original_state[:, self._state_mask]
+            # Safety check: ensure mask dimensions match the actual state tensor
+            if original_state.shape[-1] != len(self._state_mask):
+                logger.warning(f"State dimension mismatch: tensor has {original_state.shape[-1]} dims, mask has {len(self._state_mask)} dims")
+                # Adjust mask to match actual tensor size
+                actual_dims = original_state.shape[-1]
+                if actual_dims < len(self._state_mask):
+                    # Truncate mask
+                    adjusted_mask = self._state_mask[:actual_dims]
+                else:
+                    # Extend mask with True values
+                    adjusted_mask = np.concatenate([self._state_mask, np.ones(actual_dims - len(self._state_mask), dtype=bool)])
+                filtered_state = original_state[:, adjusted_mask]
+            else:
+                filtered_state = original_state[:, self._state_mask]
             filtered_batch["observation.state"] = filtered_state
             
         # Filter camera observations
