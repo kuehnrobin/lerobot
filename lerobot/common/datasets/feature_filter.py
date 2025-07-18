@@ -159,6 +159,27 @@ class FeatureFilter:
                     
         for key in features_to_remove:
             del self._filtered_meta.features[key]
+        
+        # Update stats if they exist - filter the state statistics to match filtered dimensions
+        if hasattr(self._filtered_meta, 'stats') and self._filtered_meta.stats is not None:
+            original_stats = self._filtered_meta.stats
+            if "observation.state" in original_stats:
+                original_state_stats = original_stats["observation.state"]
+                # Filter the statistics to match the filtered state dimensions
+                filtered_state_stats = {}
+                for stat_key, stat_value in original_state_stats.items():
+                    if hasattr(stat_value, '__len__') and len(stat_value) == len(self._state_mask):
+                        # This is a per-dimension statistic, filter it
+                        filtered_state_stats[stat_key] = stat_value[self._state_mask]
+                    else:
+                        # This is a scalar statistic, keep as-is
+                        filtered_state_stats[stat_key] = stat_value
+                original_stats["observation.state"] = filtered_state_stats
+            
+            # Remove camera statistics for excluded cameras
+            for key in list(original_stats.keys()):
+                if key.startswith("observation.images.") and key not in self._filtered_cameras:
+                    del original_stats[key]
             
         logger.info(f"Filtered dataset will have {len(self._filtered_cameras)} cameras and {state_dim} state dimensions")
         
@@ -250,6 +271,39 @@ def create_filtered_dataset_wrapper(dataset: LeRobotDataset, config: FeatureSele
         @property
         def meta(self):
             return self.feature_filter.filtered_meta
+            
+        @property
+        def stats(self):
+            """Return filtered stats from the original dataset."""
+            if hasattr(self.original_dataset, 'stats'):
+                # Apply filtering to the original dataset's stats
+                original_stats = self.original_dataset.stats
+                if original_stats is None:
+                    return None
+                    
+                from copy import deepcopy
+                filtered_stats = deepcopy(original_stats)
+                
+                # Filter state statistics
+                if "observation.state" in filtered_stats:
+                    original_state_stats = filtered_stats["observation.state"]
+                    filtered_state_stats = {}
+                    for stat_key, stat_value in original_state_stats.items():
+                        if hasattr(stat_value, '__len__') and len(stat_value) == len(self.feature_filter._state_mask):
+                            # This is a per-dimension statistic, filter it
+                            filtered_state_stats[stat_key] = stat_value[self.feature_filter._state_mask]
+                        else:
+                            # This is a scalar statistic, keep as-is
+                            filtered_state_stats[stat_key] = stat_value
+                    filtered_stats["observation.state"] = filtered_state_stats
+                
+                # Remove camera statistics for excluded cameras
+                for key in list(filtered_stats.keys()):
+                    if key.startswith("observation.images.") and key not in self.feature_filter._filtered_cameras:
+                        del filtered_stats[key]
+                        
+                return filtered_stats
+            return None
             
         @property
         def camera_keys(self):
