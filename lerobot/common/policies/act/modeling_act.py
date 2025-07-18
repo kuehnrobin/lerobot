@@ -38,6 +38,99 @@ from lerobot.common.policies.normalize import Normalize, Unnormalize
 from lerobot.common.policies.pretrained import PreTrainedPolicy
 
 
+def create_dinov2_backbone(vision_backbone: str):
+    """Create a DINOv2 backbone model.
+    
+    Args:
+        vision_backbone: Name of the DINOv2 model. Supports:
+            - Standard: dinov2_vits14, dinov2_vitb14, dinov2_vitl14, dinov2_vitg14
+            - With registers: dinov2_vits14_reg, dinov2_vitb14_reg, dinov2_vitl14_reg, dinov2_vitg14_reg
+        
+    Returns:
+        DINOv2 model with feature_dim attribute
+    """
+    import torch
+    
+    # Map model names to feature dimensions
+    feature_dims = {
+        "dinov2_vits14": 384, "dinov2_vits14_reg": 384,
+        "dinov2_vitb14": 768, "dinov2_vitb14_reg": 768,
+        "dinov2_vitl14": 1024, "dinov2_vitl14_reg": 1024,
+        "dinov2_vitg14": 1536, "dinov2_vitg14_reg": 1536,
+    }
+    
+    if vision_backbone not in feature_dims:
+        raise ValueError(f"Unsupported DINOv2 model: {vision_backbone}")
+    
+    # Load model from torch hub
+    model = torch.hub.load('facebookresearch/dinov2', vision_backbone)
+    model.eval()
+    
+    # Add feature dimension as attribute
+    feature_dim = feature_dims[vision_backbone]
+    model.feature_dim = feature_dim
+    
+    return model
+
+
+class DINOv2Wrapper(nn.Module):
+    """Wrapper for DINOv2 models to provide feature maps compatible with ACT."""
+    
+    def __init__(self, dinov2_model):
+        super().__init__()
+        self.dinov2_model = dinov2_model
+        self.feature_dim = dinov2_model.feature_dim
+        
+        # Check if this model uses registers
+        self.has_registers = hasattr(dinov2_model, 'num_register_tokens') and dinov2_model.num_register_tokens > 0
+        if self.has_registers:
+            self.num_register_tokens = dinov2_model.num_register_tokens
+        else:
+            self.num_register_tokens = 0
+        
+    def forward(self, x):
+        """Forward pass that returns feature maps in the expected format.
+        
+        Args:
+            x: Input images (B, C, H, W)
+            
+        Returns:
+            dict with "feature_map" key containing features (B, feature_dim, H', W')
+        """
+        B, C, H, W = x.shape
+        
+        # DINOv2 expects (B, C, H, W) and returns features
+        # Try forward_features first, fallback to regular forward
+        if hasattr(self.dinov2_model, 'forward_features'):
+            features = self.dinov2_model.forward_features(x)
+        else:
+            # For some DINOv2 versions, we need to get features differently
+            features = self.dinov2_model(x)
+            
+        # Handle different output formats
+        if isinstance(features, dict) and 'x_norm_patchtokens' in features:
+            # For newer DINOv2 versions
+            patch_features = features['x_norm_patchtokens']  # (B, N, D)
+        elif len(features.shape) == 3:
+            # Standard format: (B, N, D) where N includes CLS + (optional registers) + patch tokens
+            # Remove CLS token (first token) and register tokens (if present)
+            tokens_to_remove = 1 + self.num_register_tokens  # CLS + registers
+            patch_features = features[:, tokens_to_remove:, :]  # (B, N_patches, D)
+        else:
+            # Fallback: assume features are already in the right format
+            patch_features = features
+        
+        # Calculate spatial dimensions
+        patch_size = 14  # DINOv2 uses 14x14 patches
+        H_patches = H // patch_size
+        W_patches = W // patch_size
+        
+        # Reshape to spatial feature map format
+        feature_map = patch_features.transpose(1, 2).reshape(B, self.feature_dim, H_patches, W_patches)
+        
+        return {"feature_map": feature_map}
+
+
 class ACTPolicy(PreTrainedPolicy):
     """
     Action Chunking Transformer Policy as per Learning Fine-Grained Bimanual Manipulation with Low-Cost
@@ -332,15 +425,23 @@ class ACT(nn.Module):
 
         # Backbone for image feature extraction.
         if self.config.image_features:
-            backbone_model = getattr(torchvision.models, config.vision_backbone)(
-                replace_stride_with_dilation=[False, False, config.replace_final_stride_with_dilation],
-                weights=config.pretrained_backbone_weights,
-                norm_layer=FrozenBatchNorm2d,
-            )
-            # Note: The assumption here is that we are using a ResNet model (and hence layer4 is the final
-            # feature map).
-            # Note: The forward method of this returns a dict: {"feature_map": output}.
-            self.backbone = IntermediateLayerGetter(backbone_model, return_layers={"layer4": "feature_map"})
+            if config.vision_backbone.startswith("dinov2"):
+                # DINOv2 backbone
+                dinov2_model = create_dinov2_backbone(config.vision_backbone)
+                self.backbone = DINOv2Wrapper(dinov2_model)
+                backbone_feature_dim = dinov2_model.feature_dim
+            else:
+                # ResNet backbone (original implementation)
+                backbone_model = getattr(torchvision.models, config.vision_backbone)(
+                    replace_stride_with_dilation=[False, False, config.replace_final_stride_with_dilation],
+                    weights=config.pretrained_backbone_weights,
+                    norm_layer=FrozenBatchNorm2d,
+                )
+                # Note: The assumption here is that we are using a ResNet model (and hence layer4 is the final
+                # feature map).
+                # Note: The forward method of this returns a dict: {"feature_map": output}.
+                self.backbone = IntermediateLayerGetter(backbone_model, return_layers={"layer4": "feature_map"})
+                backbone_feature_dim = backbone_model.fc.in_features
 
         # Transformer (acts as VAE decoder when training with the variational objective).
         self.encoder = ACTEncoder(config)
@@ -359,7 +460,7 @@ class ACT(nn.Module):
         self.encoder_latent_input_proj = nn.Linear(config.latent_dim, config.dim_model)
         if self.config.image_features:
             self.encoder_img_feat_input_proj = nn.Conv2d(
-                backbone_model.fc.in_features, config.dim_model, kernel_size=1
+                backbone_feature_dim, config.dim_model, kernel_size=1 # Changed from backbone_model.fc.in_features
             )
         # Transformer encoder positional embeddings.
         n_1d_tokens = 1  # for the latent

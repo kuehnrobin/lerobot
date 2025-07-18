@@ -106,7 +106,7 @@ class ACTConfig(PreTrainedConfig):
 
     # Architecture.
     # Vision backbone.
-    vision_backbone: str = "resnet18"
+    vision_backbone: str = "resnet18"  # Options: "resnet18", "resnet34", "dinov2_vits14", "dinov2_vitb14", "dinov2_vitl14", "dinov2_vitg14", "dinov2_vits14_reg", "dinov2_vitb14_reg", "dinov2_vitl14_reg", "dinov2_vitg14_reg"
     pretrained_backbone_weights: str | None = "ResNet18_Weights.IMAGENET1K_V1"
     replace_final_stride_with_dilation: int = False
     # Transformer layers.
@@ -142,9 +142,9 @@ class ACTConfig(PreTrainedConfig):
         super().__post_init__()
 
         """Input validation (not exhaustive)."""
-        if not self.vision_backbone.startswith("resnet"):
+        if not (self.vision_backbone.startswith("resnet") or self.vision_backbone.startswith("dinov2")):
             raise ValueError(
-                f"`vision_backbone` must be one of the ResNet variants. Got {self.vision_backbone}."
+                f"`vision_backbone` must be one of the ResNet variants or DINOv2 variants. Got {self.vision_backbone}."
             )
         if self.temporal_ensemble_coeff is not None and self.n_action_steps > 1:
             raise NotImplementedError(
@@ -192,10 +192,10 @@ class OpenTelevisionACTConfig(ACTConfig):
     # Short-horizon settings
     chunk_size: int = 60
     n_action_steps: int = 1 # Wissen wir nicht #  Todo anpassen
-    n_decoder_layers: int = 7
+    n_decoder_layers: int = 3
     # Temporal ensembling for smoothness
     temporal_ensemble_coeff: float = 0.005
-    optimizer_lr: float = 5e-5
+    #optimizer_lr: float = 1e-5
     # epochs 25000
     # Batch size 45
 
@@ -265,3 +265,72 @@ class BalancedRobustACTConfig(ACTConfig):
     chunk_size: int = 60
     n_action_steps: int = 10  # Compromise between speed and smoothness
     temporal_ensemble_coeff: float = None  # Disable for more direct control
+
+
+@dataclass
+class DINOv2ACTConfig(ACTConfig):
+    # DINOv2 vision backbone settings
+    vision_backbone: str = "dinov2_vits14"
+    pretrained_backbone_weights: str | None = None  # DINOv2 models don't use torchvision weights
+    
+    # Optimized settings for DINOv2
+    chunk_size: int = 60
+    n_action_steps: int = 1
+    temporal_ensemble_coeff: float = 0.01
+    
+    # Adjusted architecture for ViT features
+    dim_model: int = 512
+    n_heads: int = 8
+    n_encoder_layers: int = 4
+    n_decoder_layers: int = 2
+    
+    # Training adjustments for DINOv2
+    optimizer_lr: float = 5e-6  # Lower LR for pretrained ViT
+    optimizer_lr_backbone: float = 1e-6  # Even lower for backbone
+
+
+@dataclass
+class DINOv2RegisterACTConfig(ACTConfig):
+    """ACT with DINOv2 backbone using registers for cleaner features."""
+    
+    # Vision backbone with registers
+    vision_backbone: str = "dinov2_vits14_reg"  # Using register variant
+    pretrained_backbone_weights: str | None = None
+    
+    # Optimized for register-based features
+    chunk_size: int = 60
+    n_action_steps: int = 1
+    temporal_ensemble_coeff: float = 0.01
+    
+    # Architecture optimized for cleaner ViT features
+    dim_model: int = 512
+    n_heads: int = 8
+    n_encoder_layers: int = 4
+    n_decoder_layers: int = 2
+    
+    # Training adjustments for DINOv2 with registers
+    optimizer_lr: float = 5e-6  # Lower LR for pretrained ViT
+    optimizer_lr_backbone: float = 1e-6  # Even lower for backbone
+
+
+@dataclass  
+class DINOv2RegisterLargeACTConfig(ACTConfig):
+    """ACT with large DINOv2 backbone using registers."""
+    
+    vision_backbone: str = "dinov2_vitl14_reg"  # Large model with registers
+    pretrained_backbone_weights: str | None = None
+    
+    # Settings for larger model with registers
+    chunk_size: int = 60
+    n_action_steps: int = 1
+    temporal_ensemble_coeff: float = 0.01
+    
+    # Enhanced architecture for large ViT with registers
+    dim_model: int = 768
+    n_heads: int = 12
+    n_encoder_layers: int = 6
+    n_decoder_layers: int = 3
+    
+    # Training adjustments
+    optimizer_lr: float = 3e-6
+    optimizer_lr_backbone: float = 5e-7
