@@ -19,6 +19,20 @@ from lerobot.configs.train import FeatureSelectionConfig
 logger = logging.getLogger(__name__)
 
 
+def make_json_serializable(obj):
+    """Convert numpy types to JSON-serializable Python types."""
+    if hasattr(obj, 'item'):  # numpy scalar
+        return obj.item()
+    elif hasattr(obj, 'tolist'):  # numpy array
+        return obj.tolist()
+    elif isinstance(obj, dict):
+        return {k: make_json_serializable(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [make_json_serializable(v) for v in obj]
+    else:
+        return obj
+
+
 class FeatureFilter:
     """Filters dataset features based on configuration."""
     
@@ -147,7 +161,10 @@ class FeatureFilter:
         # Update state feature metadata
         state_dim = int(np.sum(self._state_mask))  # Convert to regular Python int
         self._filtered_meta.features["observation.state"]["shape"] = (state_dim,)
-        self._filtered_meta.features["observation.state"]["names"] = self._state_feature_names
+        # Ensure feature names are JSON-serializable
+        self._filtered_meta.features["observation.state"]["names"] = [
+            str(name) if hasattr(name, 'item') else name for name in self._state_feature_names
+        ]
         
         # Remove unused camera features from the features dict
         # This will automatically update the camera_keys property
@@ -171,17 +188,11 @@ class FeatureFilter:
                     if hasattr(stat_value, '__len__') and len(stat_value) == len(self._state_mask):
                         # This is a per-dimension statistic, filter it
                         filtered_value = stat_value[self._state_mask]
-                        # Convert numpy arrays to regular Python lists for JSON serialization
-                        if hasattr(filtered_value, 'tolist'):
-                            filtered_state_stats[stat_key] = filtered_value.tolist()
-                        else:
-                            filtered_state_stats[stat_key] = filtered_value
+                        # Keep as numpy array/tensor for runtime use
+                        filtered_state_stats[stat_key] = filtered_value
                     else:
-                        # This is a scalar statistic, keep as-is but ensure it's JSON serializable
-                        if hasattr(stat_value, 'item'):
-                            filtered_state_stats[stat_key] = stat_value.item()
-                        else:
-                            filtered_state_stats[stat_key] = stat_value
+                        # This is a scalar statistic, keep as-is
+                        filtered_state_stats[stat_key] = stat_value
                 original_stats["observation.state"] = filtered_state_stats
             
             # Remove camera statistics for excluded cameras
@@ -300,17 +311,11 @@ def create_filtered_dataset_wrapper(dataset: LeRobotDataset, config: FeatureSele
                         if hasattr(stat_value, '__len__') and len(stat_value) == len(self.feature_filter._state_mask):
                             # This is a per-dimension statistic, filter it
                             filtered_value = stat_value[self.feature_filter._state_mask]
-                            # Convert numpy arrays to regular Python types for JSON serialization
-                            if hasattr(filtered_value, 'tolist'):
-                                filtered_state_stats[stat_key] = filtered_value.tolist()
-                            else:
-                                filtered_state_stats[stat_key] = filtered_value
+                            # Keep as numpy array/tensor for runtime use
+                            filtered_state_stats[stat_key] = filtered_value
                         else:
-                            # This is a scalar statistic, keep as-is but ensure it's JSON serializable
-                            if hasattr(stat_value, 'item'):
-                                filtered_state_stats[stat_key] = stat_value.item()
-                            else:
-                                filtered_state_stats[stat_key] = stat_value
+                            # This is a scalar statistic, keep as-is
+                            filtered_state_stats[stat_key] = stat_value
                     filtered_stats["observation.state"] = filtered_state_stats
                 
                 # Remove camera statistics for excluded cameras
