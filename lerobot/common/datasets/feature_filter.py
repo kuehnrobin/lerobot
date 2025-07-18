@@ -54,14 +54,20 @@ class FeatureFilter:
         
         if self.config.cameras is not None:
             # Use only specified cameras
-            self._filtered_cameras = [cam for cam in self.config.cameras if cam in available_cameras]
-            if len(self._filtered_cameras) != len(self.config.cameras):
-                missing = set(self.config.cameras) - set(available_cameras)
+            # Convert camera names to full keys (e.g., cam_left_head -> observation.images.cam_left_head)
+            requested_cameras = [f"observation.images.{cam}" if not cam.startswith("observation.images.") else cam 
+                               for cam in self.config.cameras]
+            self._filtered_cameras = [cam for cam in requested_cameras if cam in available_cameras]
+            if len(self._filtered_cameras) != len(requested_cameras):
+                missing = set(requested_cameras) - set(available_cameras)
                 logger.warning(f"Cameras not found in dataset: {missing}")
                 
         elif self.config.exclude_cameras is not None:
             # Use all cameras except excluded ones
-            self._filtered_cameras = [cam for cam in available_cameras if cam not in self.config.exclude_cameras]
+            # Convert camera names to full keys
+            excluded_cameras = [f"observation.images.{cam}" if not cam.startswith("observation.images.") else cam 
+                              for cam in self.config.exclude_cameras]
+            self._filtered_cameras = [cam for cam in available_cameras if cam not in excluded_cameras]
             
         else:
             # Use all cameras
@@ -122,20 +128,17 @@ class FeatureFilter:
         from copy import deepcopy
         self._filtered_meta = deepcopy(self.meta)
         
-        # Update camera keys
-        self._filtered_meta.camera_keys = self._filtered_cameras
-        
         # Update state feature metadata
         state_dim = np.sum(self._state_mask)
         self._filtered_meta.features["observation.state"]["shape"] = (state_dim,)
         self._filtered_meta.features["observation.state"]["names"] = self._state_feature_names
         
-        # Remove unused camera features
+        # Remove unused camera features from the features dict
+        # This will automatically update the camera_keys property
         features_to_remove = []
         for key in self._filtered_meta.features.keys():
             if key.startswith("observation.images."):
-                camera_name = key.replace("observation.images.", "")
-                if camera_name not in self._filtered_cameras:
+                if key not in self._filtered_cameras:
                     features_to_remove.append(key)
                     
         for key in features_to_remove:
