@@ -190,7 +190,7 @@ class ACTConfig(PreTrainedConfig):
 @dataclass
 class OpenTelevisionACTConfig(ACTConfig):
     # Short-horizon settings
-    chunk_size: int = 60
+    #chunk_size: int = 60
     n_action_steps: int = 1 # Wissen wir nicht #  Todo anpassen
     n_decoder_layers: int = 3
     # Temporal ensembling for smoothness
