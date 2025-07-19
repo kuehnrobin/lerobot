@@ -80,6 +80,7 @@ class DINOv2Wrapper(nn.Module):
         super().__init__()
         self.dinov2_model = dinov2_model
         self.feature_dim = dinov2_model.feature_dim
+        self.patch_size = 14  # DINOv2 patch size
         
         # Check if this model uses registers
         self.has_registers = hasattr(dinov2_model, 'num_register_tokens') and dinov2_model.num_register_tokens > 0
@@ -87,6 +88,25 @@ class DINOv2Wrapper(nn.Module):
             self.num_register_tokens = dinov2_model.num_register_tokens
         else:
             self.num_register_tokens = 0
+    
+    def _make_divisible_by_patch_size(self, x):
+        """Resize input to be divisible by patch size."""
+        B, C, H, W = x.shape
+        
+        # Calculate target dimensions (divisible by patch_size)
+        target_H = ((H + self.patch_size - 1) // self.patch_size) * self.patch_size
+        target_W = ((W + self.patch_size - 1) // self.patch_size) * self.patch_size
+        
+        # Resize if needed
+        if H != target_H or W != target_W:
+            x = torch.nn.functional.interpolate(
+                x, 
+                size=(target_H, target_W), 
+                mode='bilinear', 
+                align_corners=False
+            )
+        
+        return x, (target_H, target_W)
         
     def forward(self, x):
         """Forward pass that returns feature maps in the expected format.
@@ -98,6 +118,9 @@ class DINOv2Wrapper(nn.Module):
             dict with "feature_map" key containing features (B, feature_dim, H', W')
         """
         B, C, H, W = x.shape
+        
+        # Ensure input is divisible by patch size
+        x, (target_H, target_W) = self._make_divisible_by_patch_size(x)
         
         # DINOv2 expects (B, C, H, W) and returns features
         # Try forward_features first, fallback to regular forward
@@ -120,10 +143,9 @@ class DINOv2Wrapper(nn.Module):
             # Fallback: assume features are already in the right format
             patch_features = features
         
-        # Calculate spatial dimensions
-        patch_size = 14  # DINOv2 uses 14x14 patches
-        H_patches = H // patch_size
-        W_patches = W // patch_size
+        # Calculate spatial dimensions based on resized input
+        H_patches = target_H // self.patch_size
+        W_patches = target_W // self.patch_size
         
         # Reshape to spatial feature map format
         feature_map = patch_features.transpose(1, 2).reshape(B, self.feature_dim, H_patches, W_patches)

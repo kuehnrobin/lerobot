@@ -186,7 +186,7 @@ class ACTConfig(PreTrainedConfig):
     def reward_delta_indices(self) -> None:
         return None
 
-@PreTrainedConfig.register_subclass("act")
+
 @dataclass
 class OpenTelevisionACTConfig(ACTConfig):
     # Short-horizon settings
@@ -276,7 +276,7 @@ class DINOv2ACTConfig(ACTConfig):
     # Optimized settings for DINOv2
     chunk_size: int = 60
     n_action_steps: int = 1
-    temporal_ensemble_coeff: float = 0.01
+    temporal_ensemble_coeff: float = 0.005
     
     # Adjusted architecture for ViT features
     dim_model: int = 512
@@ -288,7 +288,7 @@ class DINOv2ACTConfig(ACTConfig):
     optimizer_lr: float = 5e-6  # Lower LR for pretrained ViT
     optimizer_lr_backbone: float = 1e-6  # Even lower for backbone
 
-
+@PreTrainedConfig.register_subclass("act")
 @dataclass
 class DINOv2RegisterACTConfig(ACTConfig):
     """ACT with DINOv2 backbone using registers for cleaner features."""
@@ -300,7 +300,7 @@ class DINOv2RegisterACTConfig(ACTConfig):
     # Optimized for register-based features
     chunk_size: int = 60
     n_action_steps: int = 1
-    temporal_ensemble_coeff: float = 0.01
+    temporal_ensemble_coeff: float = 0.005
     
     # Architecture optimized for cleaner ViT features
     dim_model: int = 512
