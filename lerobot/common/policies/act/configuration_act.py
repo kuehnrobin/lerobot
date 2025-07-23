@@ -21,7 +21,7 @@ from lerobot.configs.types import NormalizationMode
 
 
 
-
+@PreTrainedConfig.register_subclass("act")
 @dataclass
 class ACTConfig(PreTrainedConfig):
     """Configuration class for the Action Chunking Transformers policy.
@@ -288,7 +288,7 @@ class DINOv2ACTConfig(ACTConfig):
     optimizer_lr: float = 5e-6  # Lower LR for pretrained ViT
     optimizer_lr_backbone: float = 1e-6  # Even lower for backbone
 
-@PreTrainedConfig.register_subclass("act")
+
 @dataclass
 class DINOv2RegisterACTConfig(ACTConfig):
     """ACT with DINOv2 backbone using registers for cleaner features."""
