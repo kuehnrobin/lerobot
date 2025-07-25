@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 """
+Copyright Robin Kühn 2024
 Feature filtering utilities for selective training on LeRobot datasets.
 
 This module provides functionality to selectively use subsets of dataset features
@@ -91,7 +92,20 @@ class FeatureFilter:
         
     def _compute_state_filter(self):
         """Compute state dimension filtering mask."""
-        # This is a simplified version - you might need to adapt based on your exact state structure
+        # Define the exact state vector structure based on the dataset conversion
+        # Total 82D state vector:
+        # 0-6:    left_arm qpos (7D)
+        # 7-13:   left_arm qvel (7D)  
+        # 14-20:  left_arm torque (7D)
+        # 21-27:  right_arm qpos (7D)
+        # 28-34:  right_arm qvel (7D)
+        # 35-41:  right_arm torque (7D)
+        # 42-48:  left_hand qpos (7D)
+        # 49-60:  left_hand pressures (12D)
+        # 61-67:  right_hand qpos (7D)
+        # 68-79:  right_hand pressures (12D)
+        # 80-81:  camera qpos (2D)
+        
         state_names = self.meta.features["observation.state"]["names"]
         total_dims = len(state_names)
         
@@ -109,48 +123,77 @@ class FeatureFilter:
             self._state_feature_names = [state_names[i] for i in valid_indices if i < len(state_names)]
             
         else:
-            # Build mask based on feature types
-            mask = np.ones(actual_dims, dtype=bool)
+            # Build mask based on known state structure and feature configuration
+            mask = np.zeros(actual_dims, dtype=bool)
             filtered_names = []
             
-            # Only process up to the minimum of available names and actual dimensions
-            process_dims = min(len(state_names), actual_dims)
-            
-            for i in range(process_dims):
-                name = state_names[i] if i < len(state_names) else f"state_{i}"
-                include = True
+            # Define state structure mapping
+            state_structure = {
+                # Arms (positions, velocities, torques)
+                'left_arm_qpos': (0, 7),      # 0-6
+                'left_arm_qvel': (7, 14),     # 7-13
+                'left_arm_torque': (14, 21),  # 14-20
+                'right_arm_qpos': (21, 28),   # 21-27
+                'right_arm_qvel': (28, 35),   # 28-34
+                'right_arm_torque': (35, 42), # 35-41
                 
-                # Check joint group filtering
-                if self.config.joint_groups is not None:
-                    include = any(group in name for group in self.config.joint_groups)
-                elif self.config.exclude_joint_groups is not None:
-                    include = not any(group in name for group in self.config.exclude_joint_groups)
+                # Hands (positions and pressures)
+                'left_hand_qpos': (42, 49),   # 42-48
+                'left_hand_pressure': (49, 61), # 49-60
+                'right_hand_qpos': (61, 68),  # 61-67
+                'right_hand_pressure': (68, 80), # 68-79
+                
+                # Camera
+                'camera_qpos': (80, 82),      # 80-81
+            }
+            
+            # Apply filtering based on configuration
+            for feature_name, (start, end) in state_structure.items():
+                include_feature = True
                 
                 # Check feature type filtering
-                if include:
-                    if "_pos" in name and not self.config.use_joint_positions:
-                        include = False
-                    elif "_vel" in name and not self.config.use_joint_velocities:
-                        include = False
-                    elif "_effort" in name and not self.config.use_joint_torques:
-                        include = False
-                    elif "pressure" in name and not self.config.use_pressure_sensors:
-                        include = False
+                if 'qpos' in feature_name and not self.config.use_joint_positions:
+                    include_feature = False
+                    logger.debug(f"Excluding {feature_name} - joint positions disabled")
+                elif 'qvel' in feature_name and not self.config.use_joint_velocities:
+                    include_feature = False
+                    logger.debug(f"Excluding {feature_name} - joint velocities disabled")
+                elif 'torque' in feature_name and not self.config.use_joint_torques:
+                    include_feature = False
+                    logger.debug(f"Excluding {feature_name} - joint torques disabled")
+                elif 'pressure' in feature_name and not self.config.use_pressure_sensors:
+                    include_feature = False
+                    logger.debug(f"Excluding {feature_name} - pressure sensors disabled")
+                elif 'camera' in feature_name:
+                    # Special handling for camera positions
+                    include_feature = self._should_include_camera_positions()
+                    logger.info(f"Camera position feature '{feature_name}' - include: {include_feature}")
                 
-                mask[i] = include
-                if include:
-                    filtered_names.append(name)
-            
-            # If there are extra dimensions beyond the named ones, include them by default
-            for i in range(process_dims, actual_dims):
-                mask[i] = True
-                filtered_names.append(f"state_{i}")
+                # Apply the mask for this feature range
+                if include_feature and start < actual_dims:
+                    end_idx = min(end, actual_dims)
+                    mask[start:end_idx] = True
+                    for i in range(start, end_idx):
+                        if i < len(state_names):
+                            filtered_names.append(state_names[i])
+                        else:
+                            filtered_names.append(f"{feature_name}_{i-start}")
+                    logger.debug(f"Including {feature_name}: indices {start}:{end_idx}")
+                else:
+                    logger.debug(f"Excluding {feature_name}: indices {start}:{end}")
                     
             self._state_mask = mask
             self._state_feature_names = filtered_names
             
         logger.info(f"Using {np.sum(self._state_mask)}/{actual_dims} state dimensions")
         logger.info(f"Filtered state features: {self._state_feature_names[:10]}...")  # Show first 10
+        logger.info(f"State structure breakdown:")
+        logger.info(f"  - Arm positions: {'✓' if self.config.use_joint_positions else '✗'}")
+        logger.info(f"  - Arm velocities: {'✓' if self.config.use_joint_velocities else '✗'}")
+        logger.info(f"  - Arm torques: {'✓' if self.config.use_joint_torques else '✗'}")
+        logger.info(f"  - Pressure sensors: {'✓' if self.config.use_pressure_sensors else '✗'}")
+        logger.info(f"  - Camera positions: {'✓' if self._should_include_camera_positions() else '✗'}")
+        
         
     def _create_filtered_meta(self):
         """Create filtered metadata."""
@@ -251,7 +294,32 @@ class FeatureFilter:
                 filtered_batch[key] = value
                 
         return filtered_batch
-
+    
+    def _should_include_camera_positions(self):
+        """
+        Determine if camera positions should be included in the state vector.
+        Camera positions should be included if active cameras are selected.
+        """
+        # Check if any active cameras are included in the filtered cameras
+        active_camera_names = [
+            "observation.images.cam_left_active",
+            "observation.images.cam_right_active"
+        ]
+        
+        # Check if any active cameras are in the filtered cameras list
+        has_active_cameras = any(cam in self._filtered_cameras for cam in active_camera_names)
+        
+        logger.info(f"Camera position inclusion check:")
+        logger.info(f"  - Filtered cameras: {self._filtered_cameras}")
+        logger.info(f"  - Active camera names: {active_camera_names}")
+        logger.info(f"  - Has active cameras: {has_active_cameras}")
+        
+        if has_active_cameras:
+            logger.info("Active cameras detected in filtered cameras - including camera positions in state")
+            return True
+        else:
+            logger.info("No active cameras in filtered cameras - excluding camera positions from state")
+            return False
 
 def create_filtered_dataset_wrapper(dataset: LeRobotDataset, config: FeatureSelectionConfig):
     """
