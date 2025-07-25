@@ -50,6 +50,7 @@ def create_dinov2_backbone(vision_backbone: str):
         DINOv2 model with feature_dim attribute
     """
     import torch
+    import os
     
     # Map model names to feature dimensions
     feature_dims = {
@@ -62,15 +63,94 @@ def create_dinov2_backbone(vision_backbone: str):
     if vision_backbone not in feature_dims:
         raise ValueError(f"Unsupported DINOv2 model: {vision_backbone}")
     
-    # Load model from torch hub
-    model = torch.hub.load('facebookresearch/dinov2', vision_backbone)
-    model.eval()
+    # Check if we're in an offline environment (cluster)
+    torch_home = os.environ.get('TORCH_HOME', None)
+    
+    try:
+        # Try to load model from torch hub (with local cache if available)
+        if torch_home:
+            print(f"Loading DINOv2 model from local cache: {torch_home}")
+        
+        model = torch.hub.load('facebookresearch/dinov2', vision_backbone, 
+                              force_reload=False, trust_repo=True)
+        model.eval()
+        
+    except Exception as e:
+        print(f"Failed to load from torch hub: {e}")
+        
+        # Fallback: try to load from local file if available
+        local_model_path = os.path.join(torch_home or '.', f'{vision_backbone}.pth')
+        if os.path.exists(local_model_path):
+            print(f"Loading from local file: {local_model_path}")
+            model = torch.load(local_model_path, map_location='cpu')
+            model.eval()
+        else:
+            raise RuntimeError(f"Cannot load DINOv2 model {vision_backbone}. "
+                             f"Model not found in cache or local file. "
+                             f"Please pre-download the model to {torch_home or 'current directory'}")
     
     # Add feature dimension as attribute
     feature_dim = feature_dims[vision_backbone]
     model.feature_dim = feature_dim
     
     return model
+
+
+def create_resnet_backbone(vision_backbone: str, config):
+    """Create a ResNet backbone model with offline support.
+    
+    Args:
+        vision_backbone: Name of the ResNet model (e.g., 'resnet18', 'resnet34')
+        config: ACT configuration object
+        
+    Returns:
+        ResNet backbone model
+    """
+    import os
+    import torch
+    import torchvision
+    
+    # Check if we're in an offline environment (cluster)
+    torch_home = os.environ.get('TORCH_HOME', None)
+    
+    try:
+        # Try to load with pretrained weights (will use cache if available)
+        if torch_home:
+            print(f"Loading ResNet model from cache: {torch_home}")
+        
+        backbone_model = getattr(torchvision.models, vision_backbone)(
+            replace_stride_with_dilation=[False, False, config.replace_final_stride_with_dilation],
+            weights=config.pretrained_backbone_weights,
+            norm_layer=FrozenBatchNorm2d,
+        )
+        
+    except Exception as e:
+        print(f"Failed to load ResNet with pretrained weights: {e}")
+        
+        # Fallback: try to load from local file if available
+        local_model_path = os.path.join(torch_home or '.', f'{vision_backbone}_pretrained.pth')
+        if os.path.exists(local_model_path):
+            print(f"Loading ResNet from local file: {local_model_path}")
+            # Load without pretrained weights first
+            backbone_model = getattr(torchvision.models, vision_backbone)(
+                replace_stride_with_dilation=[False, False, config.replace_final_stride_with_dilation],
+                weights=None,
+                norm_layer=FrozenBatchNorm2d,
+            )
+            # Load pretrained state dict
+            pretrained_state = torch.load(local_model_path, map_location='cpu')
+            backbone_model.load_state_dict(pretrained_state)
+            print(f"✓ Loaded pretrained weights from {local_model_path}")
+        else:
+            print(f"⚠ No local pretrained weights found, using random initialization")
+            # Create model without pretrained weights
+            backbone_model = getattr(torchvision.models, vision_backbone)(
+                replace_stride_with_dilation=[False, False, config.replace_final_stride_with_dilation],
+                weights=None,
+                norm_layer=FrozenBatchNorm2d,
+            )
+    
+    return backbone_model
 
 
 class DINOv2Wrapper(nn.Module):
@@ -454,11 +534,7 @@ class ACT(nn.Module):
                 backbone_feature_dim = dinov2_model.feature_dim
             else:
                 # ResNet backbone (original implementation)
-                backbone_model = getattr(torchvision.models, config.vision_backbone)(
-                    replace_stride_with_dilation=[False, False, config.replace_final_stride_with_dilation],
-                    weights=config.pretrained_backbone_weights,
-                    norm_layer=FrozenBatchNorm2d,
-                )
+                backbone_model = create_resnet_backbone(config.vision_backbone, config)
                 # Note: The assumption here is that we are using a ResNet model (and hence layer4 is the final
                 # feature map).
                 # Note: The forward method of this returns a dict: {"feature_map": output}.
