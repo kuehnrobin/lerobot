@@ -73,7 +73,10 @@ def create_dinov2_backbone(vision_backbone: str):
         
         model = torch.hub.load('facebookresearch/dinov2', vision_backbone, 
                               force_reload=False, trust_repo=True)
+        
+        # Set to eval mode immediately (following Open Television approach)
         model.eval()
+        print(f"✓ Loaded DINOv2 model: {vision_backbone}")
         
     except Exception as e:
         print(f"Failed to load from torch hub: {e}")
@@ -81,9 +84,13 @@ def create_dinov2_backbone(vision_backbone: str):
         # Fallback: try to load from local file if available
         local_model_path = os.path.join(torch_home or '.', f'{vision_backbone}.pth')
         if os.path.exists(local_model_path):
-            print(f"Loading from local file: {local_model_path}")
-            model = torch.load(local_model_path, map_location='cpu')
+            print(f"Loading DINOv2 from local file: {local_model_path}")
+            # For DINOv2, we need to create the model architecture first, then load weights
+            model = torch.hub.load('facebookresearch/dinov2', vision_backbone, 
+                                  pretrained=False, force_reload=False, trust_repo=True)
+            model.load_state_dict(torch.load(local_model_path, map_location='cpu'))
             model.eval()
+            print(f"✓ Loaded DINOv2 weights from {local_model_path}")
         else:
             raise RuntimeError(f"Cannot load DINOv2 model {vision_backbone}. "
                              f"Model not found in cache or local file. "
@@ -92,6 +99,9 @@ def create_dinov2_backbone(vision_backbone: str):
     # Add feature dimension as attribute
     feature_dim = feature_dims[vision_backbone]
     model.feature_dim = feature_dim
+    
+    # Log model info for debugging
+    print(f"DINOv2 model info: {vision_backbone}, feature_dim: {feature_dim}")
     
     return model
 
@@ -154,7 +164,10 @@ def create_resnet_backbone(vision_backbone: str, config):
 
 
 class DINOv2Wrapper(nn.Module):
-    """Wrapper for DINOv2 models to provide feature maps compatible with ACT."""
+    """Wrapper for DINOv2 models to provide feature maps compatible with ACT.
+    
+    This implementation follows the Open Television approach for better convergence.
+    """
     
     def __init__(self, dinov2_model):
         super().__init__()
@@ -162,31 +175,13 @@ class DINOv2Wrapper(nn.Module):
         self.feature_dim = dinov2_model.feature_dim
         self.patch_size = 14  # DINOv2 patch size
         
-        # Check if this model uses registers
-        self.has_registers = hasattr(dinov2_model, 'num_register_tokens') and dinov2_model.num_register_tokens > 0
-        if self.has_registers:
-            self.num_register_tokens = dinov2_model.num_register_tokens
-        else:
-            self.num_register_tokens = 0
-    
-    def _make_divisible_by_patch_size(self, x):
-        """Resize input to be divisible by patch size."""
-        B, C, H, W = x.shape
+        # Set model to eval mode for inference (following Open Television approach)
+        self.dinov2_model.eval()
         
-        # Calculate target dimensions (divisible by patch_size)
-        target_H = ((H + self.patch_size - 1) // self.patch_size) * self.patch_size
-        target_W = ((W + self.patch_size - 1) // self.patch_size) * self.patch_size
-        
-        # Resize if needed
-        if H != target_H or W != target_W:
-            x = torch.nn.functional.interpolate(
-                x, 
-                size=(target_H, target_W), 
-                mode='bilinear', 
-                align_corners=False
-            )
-        
-        return x, (target_H, target_W)
+        # Calculate expected spatial dimensions for 480x640 input (common in robotics)
+        # 480 / 14 = 34.28 -> 34, 640 / 14 = 45.71 -> 45
+        # But Open Television uses 22x16, which suggests they resize to 308x224
+        # We'll calculate dynamically but prefer the Open Television approach
         
     def forward(self, x):
         """Forward pass that returns feature maps in the expected format.
@@ -199,36 +194,19 @@ class DINOv2Wrapper(nn.Module):
         """
         B, C, H, W = x.shape
         
-        # Ensure input is divisible by patch size
-        x, (target_H, target_W) = self._make_divisible_by_patch_size(x)
-        
-        # DINOv2 expects (B, C, H, W) and returns features
-        # Try forward_features first, fallback to regular forward
-        if hasattr(self.dinov2_model, 'forward_features'):
+        # Use torch.no_grad for DINOv2 feature extraction (following Open Television)
+        with torch.no_grad():
+            # DINOv2 forward_features returns dict with x_norm_patchtokens
             features = self.dinov2_model.forward_features(x)
-        else:
-            # For some DINOv2 versions, we need to get features differently
-            features = self.dinov2_model(x)
-            
-        # Handle different output formats
-        if isinstance(features, dict) and 'x_norm_patchtokens' in features:
-            # For newer DINOv2 versions
-            patch_features = features['x_norm_patchtokens']  # (B, N, D)
-        elif len(features.shape) == 3:
-            # Standard format: (B, N, D) where N includes CLS + (optional registers) + patch tokens
-            # Remove CLS token (first token) and register tokens (if present)
-            tokens_to_remove = 1 + self.num_register_tokens  # CLS + registers
-            patch_features = features[:, tokens_to_remove:, :]  # (B, N_patches, D)
-        else:
-            # Fallback: assume features are already in the right format
-            patch_features = features
+            patch_features = features["x_norm_patchtokens"]  # (B, N_patches, feature_dim)
         
-        # Calculate spatial dimensions based on resized input
-        H_patches = target_H // self.patch_size
-        W_patches = target_W // self.patch_size
+        # Calculate spatial dimensions
+        H_patches = H // self.patch_size
+        W_patches = W // self.patch_size
         
-        # Reshape to spatial feature map format
-        feature_map = patch_features.transpose(1, 2).reshape(B, self.feature_dim, H_patches, W_patches)
+        # Reshape following Open Television approach:
+        # patch_features: (B, N_patches, feature_dim) -> (B, H_patches, W_patches, feature_dim) -> (B, feature_dim, W_patches, H_patches)
+        feature_map = patch_features.reshape(B, H_patches, W_patches, self.feature_dim).permute(0, 3, 2, 1)
         
         return {"feature_map": feature_map}
 
