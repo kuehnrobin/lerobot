@@ -165,16 +165,17 @@ def create_resnet_backbone(vision_backbone: str, config):
 
 class DINOv2Wrapper(nn.Module):
     """Wrapper for DINOv2 models to provide feature maps compatible with ACT.
-    
-    This implementation follows the Open Television approach for better convergence.
+
+    This implementation resizes input images so their height and width are multiples of the patch size (14),
+    as required by DINOv2. This avoids assertion errors during patch embedding.
     """
-    
+
     def __init__(self, dinov2_model):
         super().__init__()
         self.dinov2_model = dinov2_model
         self.feature_dim = dinov2_model.feature_dim
         self.patch_size = 14  # DINOv2 patch size
-        
+
         # Set model to eval mode for inference (following Open Television approach)
         self.dinov2_model.eval()
         
@@ -185,29 +186,30 @@ class DINOv2Wrapper(nn.Module):
         
     def forward(self, x):
         """Forward pass that returns feature maps in the expected format.
-        
+
         Args:
             x: Input images (B, C, H, W)
-            
+
         Returns:
             dict with "feature_map" key containing features (B, feature_dim, H', W')
         """
         B, C, H, W = x.shape
-        
-        # Use torch.no_grad for DINOv2 feature extraction (following Open Television)
+
+        # Resize input so H and W are multiples of patch_size (14)
+        new_H = (H // self.patch_size) * self.patch_size
+        new_W = (W // self.patch_size) * self.patch_size
+        if H % self.patch_size != 0 or W % self.patch_size != 0:
+            x = F.interpolate(x, size=(new_H, new_W), mode="bilinear", align_corners=False)
+
         with torch.no_grad():
-            # DINOv2 forward_features returns dict with x_norm_patchtokens
             features = self.dinov2_model.forward_features(x)
             patch_features = features["x_norm_patchtokens"]  # (B, N_patches, feature_dim)
-        
-        # Calculate spatial dimensions
-        H_patches = H // self.patch_size
-        W_patches = W // self.patch_size
-        
-        # Reshape following Open Television approach:
-        # patch_features: (B, N_patches, feature_dim) -> (B, H_patches, W_patches, feature_dim) -> (B, feature_dim, W_patches, H_patches)
+
+        H_patches = new_H // self.patch_size
+        W_patches = new_W // self.patch_size
+
         feature_map = patch_features.reshape(B, H_patches, W_patches, self.feature_dim).permute(0, 3, 2, 1)
-        
+
         return {"feature_map": feature_map}
 
 
