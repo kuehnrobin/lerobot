@@ -227,6 +227,53 @@ def train(cfg: TrainPipelineConfig):
         is_log_step = cfg.log_freq > 0 and step % cfg.log_freq == 0
         is_saving_step = step % cfg.save_freq == 0 or step == cfg.steps
         is_eval_step = cfg.eval_freq > 0 and step % cfg.eval_freq == 0
+        is_debug_step = step % 1000 == 0  # Debug every 1000 steps
+
+        # Debug: Print input vector breakdown every 1000 steps
+        if is_debug_step and "observation.state" in batch:
+            logging.info(f"=== DEBUG STEP {step}: Input Vector Analysis ===")
+            state_data = batch["observation.state"][0, 0].cpu().numpy()  # First episode, first timestep
+            logging.info(f"Total state dimension: {len(state_data)}")
+            logging.info(f"Full state vector: {state_data}")
+            
+            # Assume standard structure based on unitree G1:
+            # Positions: arms (0-13), hands (14-27), camera (28-29) if present
+            # Then velocities, torques, pressures depending on config
+            
+            try:
+                if len(state_data) >= 14:
+                    left_arm_qpos = state_data[0:7]
+                    right_arm_qpos = state_data[7:14]
+                    logging.info(f"Left arm qpos (0-6): {left_arm_qpos}")
+                    logging.info(f"Right arm qpos (7-13): {right_arm_qpos}")
+                
+                if len(state_data) >= 28:
+                    left_hand_qpos = state_data[14:21]
+                    right_hand_qpos = state_data[21:28]
+                    logging.info(f"Left hand qpos (14-20): {left_hand_qpos}")
+                    logging.info(f"Right hand qpos (21-27): {right_hand_qpos}")
+                
+                if len(state_data) >= 30:
+                    camera_qpos = state_data[28:30]
+                    logging.info(f"Camera qpos (28-29): {camera_qpos}")
+                
+                # Print action for comparison
+                if "action" in batch:
+                    action_data = batch["action"][0, 0].cpu().numpy()  # First episode, first timestep
+                    logging.info(f"Action dimension: {len(action_data)}")
+                    if len(action_data) >= 30:
+                        logging.info(f"Action left arm (0-6): {action_data[0:7]}")
+                        logging.info(f"Action right arm (7-13): {action_data[7:14]}")
+                        logging.info(f"Action left hand (14-20): {action_data[14:21]}")
+                        logging.info(f"Action right hand (21-27): {action_data[21:28]}")
+                        logging.info(f"Action camera (28-29): {action_data[28:30]}")
+                    else:
+                        logging.info(f"Full action vector: {action_data}")
+                        
+            except Exception as e:
+                logging.warning(f"Error parsing state vector: {e}")
+            
+            logging.info("=== END DEBUG ===")
 
         if is_log_step:
             logging.info(train_tracker)

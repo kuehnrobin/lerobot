@@ -9,7 +9,7 @@ during training without recreating the entire dataset.
 """
 
 import logging
-from typing import Dict, List, Optional, Any
+from typing import Dict
 import torch
 import numpy as np
 
@@ -115,6 +115,7 @@ class FeatureFilter:
         
         logger.info(f"State names suggest {total_dims} dimensions, actual state shape: {actual_dims}")
         
+        #TODO Diesen Teil prüfen
         if self.config.custom_state_indices is not None:
             # Use custom indices
             self._state_mask = np.zeros(actual_dims, dtype=bool)
@@ -152,10 +153,7 @@ class FeatureFilter:
                 include_feature = True
                 
                 # Check feature type filtering
-                if 'qpos' in feature_name and not self.config.use_joint_positions:
-                    include_feature = False
-                    logger.debug(f"Excluding {feature_name} - joint positions disabled")
-                elif 'qvel' in feature_name and not self.config.use_joint_velocities:
+                if 'qvel' in feature_name and not self.config.use_joint_velocities:
                     include_feature = False
                     logger.debug(f"Excluding {feature_name} - joint velocities disabled")
                 elif 'torque' in feature_name and not self.config.use_joint_torques:
