@@ -252,13 +252,8 @@ def train(cfg: TrainPipelineConfig):
                 logging.info(f"Total state dimension: {state_dim}")
                 logging.info(f"State tensor shape: {state_tensor.shape}")
                 
-                # Only show first 10 values if state is very long to avoid spam
-                if state_dim > 10:
-                    logging.info(f"State vector (first 10): {state_data[:10]}")
-                    logging.info(f"State vector (last 10): {state_data[-10:]}")
-                else:
-                    logging.info(f"Full state vector: {state_data}")
-                
+                logging.info(f"Full state vector: {state_data}")
+
                 # Assume standard structure based on unitree G1:
                 # Positions: arms (0-13), hands (14-27), camera (28-29) if present
                 # Then velocities, torques, pressures depending on config
@@ -285,11 +280,29 @@ def train(cfg: TrainPipelineConfig):
                 # If state dimension is 54 (as seen in logs), show the breakdown
                 if state_dim == 54:
                     logging.info("=== 54D State Breakdown ===")
-                    logging.info(f"Arm positions (0-13): {state_data[0:14]}")
-                    logging.info(f"Hand positions (14-27): {state_data[14:28]}")
-                    logging.info(f"Camera positions (28-29): {state_data[28:30]}")
-                    logging.info(f"Pressure sensors (30-53): {state_data[30:54]}")
-                
+                    logging.info(f"Left Arm positions (0-7): {state_data[0:7]}")
+                    logging.info(f"Right Arm positions (7-14): {state_data[7:14]}")
+                    logging.info(f"Left Hand positions (14-21): {state_data[14:21]}")
+                    logging.info(f"Left Hand pressures (21-33): {state_data[21:33]}")
+                    logging.info(f"Right Hand positions (33-40): {state_data[33:40]}")
+                    logging.info(f"Right Hand pressures (40-52): {state_data[40:52]}")
+                    logging.info(f"Camera positions (52-54): {state_data[52:54]}")
+
+
+                if state_dim >= 82:
+                    logging.info("=== Full 82D/84D State Breakdown ===")
+                    logging.info(f"left_arm qpos (0-6): {state_data[0:7]}")
+                    logging.info(f"left_arm qvel (7-13): {state_data[7:14]}")
+                    logging.info(f"left_arm torque (14-20): {state_data[14:21]}")
+                    logging.info(f"right_arm qpos (21-27): {state_data[21:28]}")
+                    logging.info(f"right_arm qvel (28-34): {state_data[28:35]}")
+                    logging.info(f"right_arm torque (35-41): {state_data[35:42]}")
+                    logging.info(f"left_hand qpos (42-48): {state_data[42:49]}")
+                    logging.info(f"left_hand pressures (49-60): {state_data[49:61]}")
+                    logging.info(f"right_hand qpos (61-67): {state_data[61:68]}")
+                    logging.info(f"right_hand pressures (68-79): {state_data[68:80]}")
+                    logging.info(f"camera qpos (80-81): {state_data[80:82]}")
+
                 # Print action for comparison
                 if "action" in batch:
                     action_batch = batch["action"]
