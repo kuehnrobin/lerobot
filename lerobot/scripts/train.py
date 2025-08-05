@@ -227,41 +227,89 @@ def train(cfg: TrainPipelineConfig):
         is_log_step = cfg.log_freq > 0 and step % cfg.log_freq == 0
         is_saving_step = step % cfg.save_freq == 0 or step == cfg.steps
         is_eval_step = cfg.eval_freq > 0 and step % cfg.eval_freq == 0
-        is_debug_step = step % 1000 == 0  # Debug every 1000 steps
+        is_debug_step = step % 100 == 0  # Debug every 1000 steps
 
         # Debug: Print input vector breakdown every 1000 steps
         if is_debug_step and "observation.state" in batch:
             logging.info(f"=== DEBUG STEP {step}: Input Vector Analysis ===")
-            state_data = batch["observation.state"][0, 0].cpu().numpy()  # First episode, first timestep
-            logging.info(f"Total state dimension: {len(state_data)}")
-            logging.info(f"Full state vector: {state_data}")
-            
-            # Assume standard structure based on unitree G1:
-            # Positions: arms (0-13), hands (14-27), camera (28-29) if present
-            # Then velocities, torques, pressures depending on config
-            
             try:
-                if len(state_data) >= 14:
+                # Get the full state tensor and inspect its shape
+                state_batch = batch["observation.state"]
+                logging.info(f"State batch shape: {state_batch.shape}")
+                
+                # Extract state data - handle different tensor shapes
+                if len(state_batch.shape) == 3:  # (batch, sequence, features)
+                    state_tensor = state_batch[0, 0]  # First batch, first timestep
+                elif len(state_batch.shape) == 2:  # (batch, features)
+                    state_tensor = state_batch[0]  # First batch
+                else:
+                    logging.warning(f"Unexpected state tensor shape: {state_batch.shape}")
+                    state_tensor = state_batch.flatten()
+                
+                state_data = state_tensor.cpu().numpy()
+                state_dim = len(state_data) if state_data.ndim == 1 else state_data.shape[0]
+                
+                logging.info(f"Total state dimension: {state_dim}")
+                logging.info(f"State tensor shape: {state_tensor.shape}")
+                
+                # Only show first 10 values if state is very long to avoid spam
+                if state_dim > 10:
+                    logging.info(f"State vector (first 10): {state_data[:10]}")
+                    logging.info(f"State vector (last 10): {state_data[-10:]}")
+                else:
+                    logging.info(f"Full state vector: {state_data}")
+                
+                # Assume standard structure based on unitree G1:
+                # Positions: arms (0-13), hands (14-27), camera (28-29) if present
+                # Then velocities, torques, pressures depending on config
+                
+                if state_dim >= 14:
                     left_arm_qpos = state_data[0:7]
                     right_arm_qpos = state_data[7:14]
                     logging.info(f"Left arm qpos (0-6): {left_arm_qpos}")
                     logging.info(f"Right arm qpos (7-13): {right_arm_qpos}")
                 
-                if len(state_data) >= 28:
+                if state_dim >= 28:
                     left_hand_qpos = state_data[14:21]
                     right_hand_qpos = state_data[21:28]
                     logging.info(f"Left hand qpos (14-20): {left_hand_qpos}")
                     logging.info(f"Right hand qpos (21-27): {right_hand_qpos}")
                 
-                if len(state_data) >= 30:
+                if state_dim >= 30:
                     camera_qpos = state_data[28:30]
                     logging.info(f"Camera qpos (28-29): {camera_qpos}")
+                elif state_dim == 29:
+                    camera_qpos = state_data[28:29]
+                    logging.info(f"Camera qpos (28): {camera_qpos}")
+                
+                # If state dimension is 54 (as seen in logs), show the breakdown
+                if state_dim == 54:
+                    logging.info("=== 54D State Breakdown ===")
+                    logging.info(f"Arm positions (0-13): {state_data[0:14]}")
+                    logging.info(f"Hand positions (14-27): {state_data[14:28]}")
+                    logging.info(f"Camera positions (28-29): {state_data[28:30]}")
+                    logging.info(f"Pressure sensors (30-53): {state_data[30:54]}")
                 
                 # Print action for comparison
                 if "action" in batch:
-                    action_data = batch["action"][0, 0].cpu().numpy()  # First episode, first timestep
-                    logging.info(f"Action dimension: {len(action_data)}")
-                    if len(action_data) >= 30:
+                    action_batch = batch["action"]
+                    logging.info(f"Action batch shape: {action_batch.shape}")
+                    
+                    # Extract action data - handle different tensor shapes
+                    if len(action_batch.shape) == 3:  # (batch, sequence, features)
+                        action_tensor = action_batch[0, 0]  # First batch, first timestep
+                    elif len(action_batch.shape) == 2:  # (batch, features)
+                        action_tensor = action_batch[0]  # First batch
+                    else:
+                        action_tensor = action_batch.flatten()
+                    
+                    action_data = action_tensor.cpu().numpy()
+                    action_dim = len(action_data) if action_data.ndim == 1 else action_data.shape[0]
+                    
+                    logging.info(f"Action dimension: {action_dim}")
+                    logging.info(f"Action tensor shape: {action_tensor.shape}")
+                    
+                    if action_dim >= 30:
                         logging.info(f"Action left arm (0-6): {action_data[0:7]}")
                         logging.info(f"Action right arm (7-13): {action_data[7:14]}")
                         logging.info(f"Action left hand (14-20): {action_data[14:21]}")
@@ -272,6 +320,8 @@ def train(cfg: TrainPipelineConfig):
                         
             except Exception as e:
                 logging.warning(f"Error parsing state vector: {e}")
+                import traceback
+                logging.warning(f"Traceback: {traceback.format_exc()}")
             
             logging.info("=== END DEBUG ===")
 
