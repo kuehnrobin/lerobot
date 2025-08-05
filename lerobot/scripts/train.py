@@ -258,24 +258,24 @@ def train(cfg: TrainPipelineConfig):
                 # Positions: arms (0-13), hands (14-27), camera (28-29) if present
                 # Then velocities, torques, pressures depending on config
                 
-                if state_dim >= 14:
-                    left_arm_qpos = state_data[0:7]
-                    right_arm_qpos = state_data[7:14]
-                    logging.info(f"Left arm qpos (0-6): {left_arm_qpos}")
-                    logging.info(f"Right arm qpos (7-13): {right_arm_qpos}")
+                # if state_dim >= 14:
+                #     left_arm_qpos = state_data[0:7]
+                #     right_arm_qpos = state_data[7:14]
+                #     logging.info(f"Left arm qpos (0-6): {left_arm_qpos}")
+                #     logging.info(f"Right arm qpos (7-13): {right_arm_qpos}")
                 
-                if state_dim >= 28:
-                    left_hand_qpos = state_data[14:21]
-                    right_hand_qpos = state_data[21:28]
-                    logging.info(f"Left hand qpos (14-20): {left_hand_qpos}")
-                    logging.info(f"Right hand qpos (21-27): {right_hand_qpos}")
+                # if state_dim >= 28:
+                #     left_hand_qpos = state_data[14:21]
+                #     right_hand_qpos = state_data[21:28]
+                #     logging.info(f"Left hand qpos (14-20): {left_hand_qpos}")
+                #     logging.info(f"Right hand qpos (21-27): {right_hand_qpos}")
                 
-                if state_dim >= 30:
-                    camera_qpos = state_data[28:30]
-                    logging.info(f"Camera qpos (28-29): {camera_qpos}")
-                elif state_dim == 29:
-                    camera_qpos = state_data[28:29]
-                    logging.info(f"Camera qpos (28): {camera_qpos}")
+                # if state_dim >= 30:
+                #     camera_qpos = state_data[28:30]
+                #     logging.info(f"Camera qpos (28-29): {camera_qpos}")
+                # elif state_dim == 29:
+                #     camera_qpos = state_data[28:29]
+                #     logging.info(f"Camera qpos (28): {camera_qpos}")
                 
                 # If state dimension is 54 (as seen in logs), show the breakdown
                 if state_dim == 54:
@@ -289,8 +289,26 @@ def train(cfg: TrainPipelineConfig):
                     logging.info(f"Camera positions (52-54): {state_data[52:54]}")
 
 
-                if state_dim >= 82:
-                    logging.info("=== Full 82D/84D State Breakdown ===")
+                if state_dim >= 108:
+                    logging.info("=== Full 108D/110D State Breakdown ===")
+                    logging.info(f"left_arm qpos (0-6): {state_data[0:7]}")
+                    logging.info(f"left_arm qvel (7-13): {state_data[7:14]}")
+                    logging.info(f"left_arm torque (14-20): {state_data[14:21]}")
+                    logging.info(f"right_arm qpos (21-27): {state_data[21:28]}")
+                    logging.info(f"right_arm qvel (28-34): {state_data[28:35]}")
+                    logging.info(f"right_arm torque (35-41): {state_data[35:42]}")
+                    logging.info(f"left_hand qpos (42-48): {state_data[42:49]}")
+                    logging.info(f"left_hand qvel (49-55): {state_data[49:56]}")
+                    logging.info(f"left_hand torque (56-62): {state_data[56:63]}")
+                    logging.info(f"left_hand pressures (63-74): {state_data[63:75]}")
+                    logging.info(f"right_hand qpos (75-81): {state_data[75:82]}")
+                    logging.info(f"right_hand qvel (82-88): {state_data[82:89]}")
+                    logging.info(f"right_hand torque (89-95): {state_data[89:96]}")
+                    logging.info(f"right_hand pressures (96-107): {state_data[96:108]}")
+                    if state_dim >= 110:
+                        logging.info(f"camera qpos (108-109): {state_data[108:110]}")
+                elif state_dim >= 82:
+                    logging.info("=== Legacy 82D State Breakdown ===")
                     logging.info(f"left_arm qpos (0-6): {state_data[0:7]}")
                     logging.info(f"left_arm qvel (7-13): {state_data[7:14]}")
                     logging.info(f"left_arm torque (14-20): {state_data[14:21]}")

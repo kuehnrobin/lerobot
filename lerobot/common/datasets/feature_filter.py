@@ -92,8 +92,8 @@ class FeatureFilter:
         
     def _compute_state_filter(self):
         """Compute state dimension filtering mask."""
-        # Define the exact state vector structure based on the dataset conversion
-        # Total 82D state vector:
+        # Define the exact state vector structure based on the corrected dataset conversion
+        # Total 108D state vector (from raw JSON):
         # 0-6:    left_arm qpos (7D)
         # 7-13:   left_arm qvel (7D)  
         # 14-20:  left_arm torque (7D)
@@ -101,10 +101,14 @@ class FeatureFilter:
         # 28-34:  right_arm qvel (7D)
         # 35-41:  right_arm torque (7D)
         # 42-48:  left_hand qpos (7D)
-        # 49-60:  left_hand pressures (12D)
-        # 61-67:  right_hand qpos (7D)
-        # 68-79:  right_hand pressures (12D)
-        # 80-81:  camera qpos (2D)
+        # 49-55:  left_hand qvel (7D)
+        # 56-62:  left_hand torque (7D)
+        # 63-74:  left_hand pressures (12D)
+        # 75-81:  right_hand qpos (7D)
+        # 82-88:  right_hand qvel (7D)
+        # 89-95:  right_hand torque (7D)
+        # 96-107: right_hand pressures (12D)
+        # 108-109: camera qpos (2D) - if included
         
         state_names = self.meta.features["observation.state"]["names"]
         total_dims = len(state_names)
@@ -113,8 +117,60 @@ class FeatureFilter:
         actual_state_shape = self.meta.features["observation.state"]["shape"]
         actual_dims = actual_state_shape[0] if actual_state_shape else total_dims
         
-        logger.info(f"State names suggest {total_dims} dimensions, actual state shape: {actual_dims}")
-        
+        # Only log actual_dims every 100th call to avoid terminal spam
+        if not hasattr(self, '_state_filter_log_counter'):
+            self._state_filter_log_counter = 0
+        self._state_filter_log_counter += 1
+        if self._state_filter_log_counter % 100 == 1:
+            logger.info(f"State names suggest {total_dims} dimensions, actual state shape: {actual_dims}")
+
+        # Log the unfiltered state vector breakdown for debugging
+        if actual_dims >= 82:
+            logger.info(f"=== Unfiltered {actual_dims}D State Vector Breakdown ===")
+            if actual_dims >= 7:
+                logger.info(f"left_arm qpos (0-6): {state_names[0:7]}")
+            if actual_dims >= 14:
+                logger.info(f"left_arm qvel (7-13): {state_names[7:14]}")
+            if actual_dims >= 21:
+                logger.info(f"left_arm torque (14-20): {state_names[14:21]}")
+            if actual_dims >= 28:
+                logger.info(f"right_arm qpos (21-27): {state_names[21:28]}")
+            if actual_dims >= 35:
+                logger.info(f"right_arm qvel (28-34): {state_names[28:35]}")
+            if actual_dims >= 42:
+                logger.info(f"right_arm torque (35-41): {state_names[35:42]}")
+            if actual_dims >= 49:
+                logger.info(f"left_hand qpos (42-48): {state_names[42:49]}")
+            if actual_dims >= 56:
+                logger.info(f"left_hand qvel (49-55): {state_names[49:56]}")
+            if actual_dims >= 63:
+                logger.info(f"left_hand torque (56-62): {state_names[56:63]}")
+            if actual_dims >= 75:
+                logger.info(f"left_hand pressures (63-74): {state_names[63:75]}")
+            if actual_dims >= 82:
+                logger.info(f"right_hand qpos (75-81): {state_names[75:82]}")
+            if actual_dims >= 89:
+                logger.info(f"right_hand qvel (82-88): {state_names[82:89]}")
+            if actual_dims >= 96:
+                logger.info(f"right_hand torque (89-95): {state_names[89:96]}")
+            if actual_dims >= 108:
+                logger.info(f"right_hand pressures (96-107): {state_names[96:108]}")
+            if actual_dims >= 110:
+                logger.info(f"camera qpos (108-109): {state_names[108:110]}")
+        elif actual_dims == 82:
+            # Handle the old 82D structure for backward compatibility
+            logger.info("=== Legacy 82D State Vector (Backward Compatibility) ===")
+            logger.info(f"left_arm qpos (0-6): {state_names[0:7]}")
+            logger.info(f"left_arm qvel (7-13): {state_names[7:14]}")
+            logger.info(f"left_arm torque (14-20): {state_names[14:21]}")
+            logger.info(f"right_arm qpos (21-27): {state_names[21:28]}")
+            logger.info(f"right_arm qvel (28-34): {state_names[28:35]}")
+            logger.info(f"right_arm torque (35-41): {state_names[35:42]}")
+            logger.info(f"left_hand qpos (42-48): {state_names[42:49]}")
+            logger.info(f"left_hand pressures (49-60): {state_names[49:61]}")
+            logger.info(f"right_hand qpos (61-67): {state_names[61:68]}")
+            logger.info(f"right_hand pressures (68-79): {state_names[68:80]}")
+            logger.info(f"camera qpos (80-81): {state_names[80:82]}")
         #TODO Diesen Teil prüfen
         if self.config.custom_state_indices is not None:
             # Use custom indices
@@ -128,25 +184,51 @@ class FeatureFilter:
             mask = np.zeros(actual_dims, dtype=bool)
             filtered_names = []
             
-            # Define state structure mapping
-            state_structure = {
-                # Arms (positions, velocities, torques)
-                'left_arm_qpos': (0, 7),      # 0-6
-                'left_arm_qvel': (7, 14),     # 7-13
-                'left_arm_torque': (14, 21),  # 14-20
-                'right_arm_qpos': (21, 28),   # 21-27
-                'right_arm_qvel': (28, 35),   # 28-34
-                'right_arm_torque': (35, 42), # 35-41
-                
-                # Hands (positions and pressures)
-                'left_hand_qpos': (42, 49),   # 42-48
-                'left_hand_pressure': (49, 61), # 49-60
-                'right_hand_qpos': (61, 68),  # 61-67
-                'right_hand_pressure': (68, 80), # 68-79
-                
-                # Camera
-                'camera_qpos': (80, 82),      # 80-81
-            }
+            # Define state structure mapping based on detected state dimensions
+            if actual_dims >= 108:
+                # New 108D structure (full feature set from raw JSON)
+                state_structure = {
+                    # Arms (positions, velocities, torques)
+                    'left_arm_qpos': (0, 7),       # 0-6
+                    'left_arm_qvel': (7, 14),      # 7-13
+                    'left_arm_torque': (14, 21),   # 14-20
+                    'right_arm_qpos': (21, 28),    # 21-27
+                    'right_arm_qvel': (28, 35),    # 28-34
+                    'right_arm_torque': (35, 42),  # 35-41
+                    
+                    # Hands (positions, velocities, torques, pressures)
+                    'left_hand_qpos': (42, 49),    # 42-48
+                    'left_hand_qvel': (49, 56),    # 49-55
+                    'left_hand_torque': (56, 63),  # 56-62
+                    'left_hand_pressure': (63, 75), # 63-74
+                    'right_hand_qpos': (75, 82),   # 75-81
+                    'right_hand_qvel': (82, 89),   # 82-88
+                    'right_hand_torque': (89, 96), # 89-95
+                    'right_hand_pressure': (96, 108), # 96-107
+                    
+                    # Camera (if present)
+                    'camera_qpos': (108, min(110, actual_dims)), # 108-109
+                }
+            else:
+                # Legacy 82D structure (backward compatibility)
+                state_structure = {
+                    # Arms (positions, velocities, torques)
+                    'left_arm_qpos': (0, 7),      # 0-6
+                    'left_arm_qvel': (7, 14),     # 7-13
+                    'left_arm_torque': (14, 21),  # 14-20
+                    'right_arm_qpos': (21, 28),   # 21-27
+                    'right_arm_qvel': (28, 35),   # 28-34
+                    'right_arm_torque': (35, 42), # 35-41
+                    
+                    # Hands (positions and pressures only in legacy format)
+                    'left_hand_qpos': (42, 49),   # 42-48
+                    'left_hand_pressure': (49, 61), # 49-60
+                    'right_hand_qpos': (61, 68),  # 61-67
+                    'right_hand_pressure': (68, 80), # 68-79
+                    
+                    # Camera
+                    'camera_qpos': (80, 82),      # 80-81
+                }
             
             # Apply filtering based on configuration
             for feature_name, (start, end) in state_structure.items():
