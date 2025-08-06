@@ -227,7 +227,7 @@ def train(cfg: TrainPipelineConfig):
         is_log_step = cfg.log_freq > 0 and step % cfg.log_freq == 0
         is_saving_step = step % cfg.save_freq == 0 or step == cfg.steps
         is_eval_step = cfg.eval_freq > 0 and step % cfg.eval_freq == 0
-        is_debug_step = step % 100 == 0  # Debug every 1000 steps
+        is_debug_step = step % 10000 == 0  # Debug every 1000 steps
 
         # Debug: Print input vector breakdown every 1000 steps
         if is_debug_step and "observation.state" in batch:
