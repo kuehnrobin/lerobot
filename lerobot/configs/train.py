@@ -41,9 +41,11 @@ class FeatureSelectionConfig:
     exclude_cameras: Optional[List[str]] = None  # e.g., ["cam_active_left"] to exclude specific cameras
 
     # State feature selection
-    use_joint_positions: bool = True  # qpos
-    use_joint_velocities: bool = True  # qvel
-    use_joint_torques: bool = False  # torque/effort
+    use_joint_positions: bool = True  # qpos Always true, makes no sense to disable
+    use_arm_joint_velocities: bool = True  # qvel
+    use_arm_joint_torques: bool = True  # torque/effort
+    use_hand_joint_velocities: bool = True  # qvel
+    use_hand_joint_torques: bool = True  # torque/effort
     use_pressure_sensors: bool = True  # pressure data from hands
 
     # Specific joint group selection
