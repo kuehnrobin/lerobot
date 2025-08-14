@@ -166,8 +166,12 @@ def create_resnet_backbone(vision_backbone: str, config):
 class DINOv2Wrapper(nn.Module):
     """Wrapper for DINOv2 models to provide feature maps compatible with ACT.
 
-    This implementation resizes input images so their height and width are multiples of the patch size (14),
-    as required by DINOv2. This avoids assertion errors during patch embedding.
+    This implementation follows the TeleVision approach exactly:
+    - Fixed 224x308 input size (16*14 x 22*14 patches)
+    - Uses normalized patch tokens (x_norm_patchtokens)
+    - Fixed spatial output of 16x22
+    - Proper ImageNet normalization
+    - No gradient computation during forward pass
     """
 
     def __init__(self, dinov2_model):
@@ -175,14 +179,20 @@ class DINOv2Wrapper(nn.Module):
         self.dinov2_model = dinov2_model
         self.feature_dim = dinov2_model.feature_dim
         self.patch_size = 14  # DINOv2 patch size
+        
+        # TeleVision uses fixed patch dimensions
+        self.patch_h = 16  # Height in patches
+        self.patch_w = 22  # Width in patches
+        
+        # Target image size (patches * patch_size)
+        self.target_h = self.patch_h * self.patch_size  # 224
+        self.target_w = self.patch_w * self.patch_size  # 308
 
-        # Set model to eval mode for inference (following Open Television approach)
+        # Set model to eval mode for inference (following TeleVision)
         self.dinov2_model.eval()
         
-        # Calculate expected spatial dimensions for 480x640 input (common in robotics)
-        # 480 / 14 = 34.28 -> 34, 640 / 14 = 45.71 -> 45
-        # But Open Television uses 22x16, which suggests they resize to 308x224
-        # We'll calculate dynamically but prefer the Open Television approach
+        print(f"DINOv2Wrapper: target_size=({self.target_h}, {self.target_w}), "
+              f"output_patches=({self.patch_h}, {self.patch_w}), feature_dim={self.feature_dim}")
         
     def forward(self, x):
         """Forward pass that returns feature maps in the expected format.
@@ -191,24 +201,31 @@ class DINOv2Wrapper(nn.Module):
             x: Input images (B, C, H, W)
 
         Returns:
-            dict with "feature_map" key containing features (B, feature_dim, H', W')
+            dict with "feature_map" key containing features (B, feature_dim, W', H')
+            Note: TeleVision uses (B, feature_dim, W, H) order -> (B, 384, 16, 22)
         """
         B, C, H, W = x.shape
 
-        # Resize input so H and W are multiples of patch_size (14)
-        new_H = (H // self.patch_size) * self.patch_size
-        new_W = (W // self.patch_size) * self.patch_size
-        if H % self.patch_size != 0 or W % self.patch_size != 0:
-            x = F.interpolate(x, size=(new_H, new_W), mode="bilinear", align_corners=False)
+        # Always resize to fixed target size (following TeleVision exactly)
+        # This ensures consistent patch grid regardless of input size
+        if H != self.target_h or W != self.target_w:
+            x = F.interpolate(x, size=(self.target_h, self.target_w), mode="bilinear", align_corners=False)
 
+        # Apply ImageNet normalization (critical for DINOv2 performance)
+        # DINOv2 was trained with ImageNet normalization
+        mean = torch.tensor([0.485, 0.456, 0.406], device=x.device, dtype=x.dtype).view(1, 3, 1, 1)
+        std = torch.tensor([0.229, 0.224, 0.225], device=x.device, dtype=x.dtype).view(1, 3, 1, 1)
+        x = (x - mean) / std
+
+        # Forward pass through DINOv2 without gradients (following TeleVision)
         with torch.no_grad():
             features = self.dinov2_model.forward_features(x)
             patch_features = features["x_norm_patchtokens"]  # (B, N_patches, feature_dim)
 
-        H_patches = new_H // self.patch_size
-        W_patches = new_W // self.patch_size
-
-        feature_map = patch_features.reshape(B, H_patches, W_patches, self.feature_dim).permute(0, 3, 2, 1)
+        # Reshape to spatial feature map following TeleVision exactly
+        # TeleVision: xs.reshape(xs.shape[0], 22, 16, 384).permute(0, 3, 2, 1)
+        # This gives (B, feature_dim, 16, 22) -> (B, feature_dim, H, W)
+        feature_map = patch_features.reshape(B, self.patch_w, self.patch_h, self.feature_dim).permute(0, 3, 2, 1)
 
         return {"feature_map": feature_map}
 
