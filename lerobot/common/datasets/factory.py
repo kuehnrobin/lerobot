@@ -124,8 +124,10 @@ def make_dataset(cfg: TrainPipelineConfig) -> LeRobotDataset | MultiLeRobotDatas
             fs.cameras is not None or
             fs.exclude_cameras is not None or
             not fs.use_joint_positions or
-            not fs.use_joint_velocities or
-            fs.use_joint_torques or
+            not fs.use_arm_joint_velocities or
+            not fs.use_arm_joint_torques or
+            not fs.use_hand_joint_velocities or
+            not fs.use_hand_joint_torques or
             not fs.use_pressure_sensors or
             fs.joint_groups is not None or
             fs.exclude_joint_groups is not None or

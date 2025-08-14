@@ -234,13 +234,19 @@ class FeatureFilter:
             for feature_name, (start, end) in state_structure.items():
                 include_feature = True
                 
-                # Check feature type filtering
-                if 'qvel' in feature_name and not self.config.use_joint_velocities:
+                # Check feature type filtering with new differentiated field names
+                if 'arm' in feature_name and 'qvel' in feature_name and not self.config.use_arm_joint_velocities:
                     include_feature = False
-                    logger.debug(f"Excluding {feature_name} - joint velocities disabled")
-                elif 'torque' in feature_name and not self.config.use_joint_torques:
+                    logger.debug(f"Excluding {feature_name} - arm joint velocities disabled")
+                elif 'hand' in feature_name and 'qvel' in feature_name and not self.config.use_hand_joint_velocities:
                     include_feature = False
-                    logger.debug(f"Excluding {feature_name} - joint torques disabled")
+                    logger.debug(f"Excluding {feature_name} - hand joint velocities disabled")
+                elif 'arm' in feature_name and 'torque' in feature_name and not self.config.use_arm_joint_torques:
+                    include_feature = False
+                    logger.debug(f"Excluding {feature_name} - arm joint torques disabled")
+                elif 'hand' in feature_name and 'torque' in feature_name and not self.config.use_hand_joint_torques:
+                    include_feature = False
+                    logger.debug(f"Excluding {feature_name} - hand joint torques disabled")
                 elif 'pressure' in feature_name and not self.config.use_pressure_sensors:
                     include_feature = False
                     logger.debug(f"Excluding {feature_name} - pressure sensors disabled")
@@ -265,14 +271,16 @@ class FeatureFilter:
             self._state_mask = mask
             self._state_feature_names = filtered_names
             
-        logger.info(f"Using {np.sum(self._state_mask)}/{actual_dims} state dimensions")
-        logger.info(f"Filtered state features: {self._state_feature_names[:10]}...")  # Show first 10
-        logger.info(f"State structure breakdown:")
-        logger.info(f"  - Arm positions: {'✓' if self.config.use_joint_positions else '✗'}")
-        logger.info(f"  - Arm velocities: {'✓' if self.config.use_joint_velocities else '✗'}")
-        logger.info(f"  - Arm torques: {'✓' if self.config.use_joint_torques else '✗'}")
-        logger.info(f"  - Pressure sensors: {'✓' if self.config.use_pressure_sensors else '✗'}")
-        logger.info(f"  - Camera positions: {'✓' if self._should_include_camera_positions() else '✗'}")
+            logger.info(f"Using {np.sum(self._state_mask)}/{actual_dims} state dimensions")
+            logger.info(f"Filtered state features: {self._state_feature_names[:10]}...")  # Show first 10
+            logger.info(f"State structure breakdown:")
+            logger.info(f"  - Arm positions: {'✓' if self.config.use_joint_positions else '✗'}")
+            logger.info(f"  - Arm velocities: {'✓' if self.config.use_arm_joint_velocities else '✗'}")
+            logger.info(f"  - Arm torques: {'✓' if self.config.use_arm_joint_torques else '✗'}")
+            logger.info(f"  - Hand velocities: {'✓' if self.config.use_hand_joint_velocities else '✗'}")
+            logger.info(f"  - Hand torques: {'✓' if self.config.use_hand_joint_torques else '✗'}")
+            logger.info(f"  - Pressure sensors: {'✓' if self.config.use_pressure_sensors else '✗'}")
+            logger.info(f"  - Camera positions: {'✓' if self._should_include_camera_positions() else '✗'}")
         
         
     def _create_filtered_meta(self):
