@@ -74,8 +74,7 @@ def create_dinov2_backbone(vision_backbone: str):
         model = torch.hub.load('facebookresearch/dinov2', vision_backbone, 
                               force_reload=False, trust_repo=True)
         
-        # Set to eval mode immediately (following Open Television approach)
-        model.eval()
+        # Do not set eval() here; training loop will control train/eval state
         print(f"✓ Loaded DINOv2 model: {vision_backbone}")
         
     except Exception as e:
@@ -89,7 +88,7 @@ def create_dinov2_backbone(vision_backbone: str):
             model = torch.hub.load('facebookresearch/dinov2', vision_backbone, 
                                   pretrained=False, force_reload=False, trust_repo=True)
             model.load_state_dict(torch.load(local_model_path, map_location='cpu'))
-            model.eval()
+            # Do not set eval() here; training loop will control train/eval state
             print(f"✓ Loaded DINOv2 weights from {local_model_path}")
         else:
             raise RuntimeError(f"Cannot load DINOv2 model {vision_backbone}. "
@@ -171,7 +170,7 @@ class DINOv2Wrapper(nn.Module):
     - Uses normalized patch tokens (x_norm_patchtokens)
     - Fixed spatial output of 16x22
     - Proper ImageNet normalization
-    - No gradient computation during forward pass
+    - Allows gradient computation during training (no_grad only in eval)
     """
 
     def __init__(self, dinov2_model):
@@ -188,8 +187,8 @@ class DINOv2Wrapper(nn.Module):
         self.target_h = self.patch_h * self.patch_size  # 224
         self.target_w = self.patch_w * self.patch_size  # 308
 
-        # Set model to eval mode for inference (following TeleVision)
-        self.dinov2_model.eval()
+        # Do not force eval mode here; let the training loop control train/eval state.
+        # self.dinov2_model.eval()
         
         print(f"DINOv2Wrapper: target_size=({self.target_h}, {self.target_w}), "
               f"output_patches=({self.patch_h}, {self.patch_w}), feature_dim={self.feature_dim}")
@@ -217,10 +216,14 @@ class DINOv2Wrapper(nn.Module):
         std = torch.tensor([0.229, 0.224, 0.225], device=x.device, dtype=x.dtype).view(1, 3, 1, 1)
         x = (x - mean) / std
 
-        # Forward pass through DINOv2 without gradients (following TeleVision)
-        with torch.no_grad():
+        # Forward pass through DINOv2
+        # Enable gradients during training; disable during eval for speed
+        if self.training:
             features = self.dinov2_model.forward_features(x)
-            patch_features = features["x_norm_patchtokens"]  # (B, N_patches, feature_dim)
+        else:
+            with torch.no_grad():
+                features = self.dinov2_model.forward_features(x)
+        patch_features = features["x_norm_patchtokens"]  # (B, N_patches, feature_dim)
 
         # Reshape to spatial feature map following TeleVision exactly
         # TeleVision: xs.reshape(xs.shape[0], 22, 16, 384).permute(0, 3, 2, 1)
