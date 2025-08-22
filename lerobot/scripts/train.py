@@ -181,7 +181,9 @@ def train(cfg: TrainPipelineConfig):
         shuffle=shuffle,
         sampler=sampler,
         pin_memory=device.type != "cpu",
-        drop_last=False,
+        drop_last=True,                      # avoid partial batches
+        persistent_workers=True,             # keep workers alive
+        prefetch_factor=4,
     )
     dl_iter = cycle(dataloader)
 
@@ -200,6 +202,7 @@ def train(cfg: TrainPipelineConfig):
     )
 
     logging.info("Start offline training on a fixed dataset")
+    logging.info(f"AMP enabled: {cfg.policy.use_amp}")
     for _ in range(step, cfg.steps):
         start_time = time.perf_counter()
         batch = next(dl_iter)
@@ -226,33 +229,33 @@ def train(cfg: TrainPipelineConfig):
         train_tracker.step()
         is_log_step = cfg.log_freq > 0 and step % cfg.log_freq == 0
         is_saving_step = step % cfg.save_freq == 0 or step == cfg.steps
-        is_eval_step = cfg.eval_freq > 0 and step % cfg.eval_freq == 0
-        is_debug_step = step % 10000 == 0  # Debug every 1000 steps
+        # is_eval_step = cfg.eval_freq > 0 and step % cfg.eval_freq == 0
+        #is_debug_step = step % 10000 == 0  # Debug every 1000 steps
 
         # Debug: Print input vector breakdown every 1000 steps
-        if is_debug_step and "observation.state" in batch:
-            logging.info(f"=== DEBUG STEP {step}: Input Vector Analysis ===")
-            try:
-                # Get the full state tensor and inspect its shape
-                state_batch = batch["observation.state"]
-                logging.info(f"State batch shape: {state_batch.shape}")
+        # if is_debug_step and "observation.state" in batch:
+        #     logging.info(f"=== DEBUG STEP {step}: Input Vector Analysis ===")
+        #     try:
+        #         # Get the full state tensor and inspect its shape
+        #         state_batch = batch["observation.state"]
+        #         logging.info(f"State batch shape: {state_batch.shape}")
                 
-                # Extract state data - handle different tensor shapes
-                if len(state_batch.shape) == 3:  # (batch, sequence, features)
-                    state_tensor = state_batch[0, 0]  # First batch, first timestep
-                elif len(state_batch.shape) == 2:  # (batch, features)
-                    state_tensor = state_batch[0]  # First batch
-                else:
-                    logging.warning(f"Unexpected state tensor shape: {state_batch.shape}")
-                    state_tensor = state_batch.flatten()
+        #         # Extract state data - handle different tensor shapes
+        #         if len(state_batch.shape) == 3:  # (batch, sequence, features)
+        #             state_tensor = state_batch[0, 0]  # First batch, first timestep
+        #         elif len(state_batch.shape) == 2:  # (batch, features)
+        #             state_tensor = state_batch[0]  # First batch
+        #         else:
+        #             logging.warning(f"Unexpected state tensor shape: {state_batch.shape}")
+        #             state_tensor = state_batch.flatten()
                 
-                state_data = state_tensor.cpu().numpy()
-                state_dim = len(state_data) if state_data.ndim == 1 else state_data.shape[0]
+        #         state_data = state_tensor.cpu().numpy()
+        #         state_dim = len(state_data) if state_data.ndim == 1 else state_data.shape[0]
                 
-                logging.info(f"Total state dimension: {state_dim}")
-                logging.info(f"State tensor shape: {state_tensor.shape}")
+        #         logging.info(f"Total state dimension: {state_dim}")
+        #         logging.info(f"State tensor shape: {state_tensor.shape}")
                 
-                logging.info(f"Full state vector: {state_data}")
+        #         logging.info(f"Full state vector: {state_data}")
 
                 # Assume standard structure based on unitree G1:
                 # Positions: arms (0-13), hands (14-27), camera (28-29) if present
@@ -278,83 +281,83 @@ def train(cfg: TrainPipelineConfig):
                 #     logging.info(f"Camera qpos (28): {camera_qpos}")
                 
                 # If state dimension is 54 (as seen in logs), show the breakdown
-                if state_dim == 54:
-                    logging.info("=== 54D State Breakdown ===")
-                    logging.info(f"Left Arm positions (0-7): {state_data[0:7]}")
-                    logging.info(f"Right Arm positions (7-14): {state_data[7:14]}")
-                    logging.info(f"Left Hand positions (14-21): {state_data[14:21]}")
-                    logging.info(f"Left Hand pressures (21-33): {state_data[21:33]}")
-                    logging.info(f"Right Hand positions (33-40): {state_data[33:40]}")
-                    logging.info(f"Right Hand pressures (40-52): {state_data[40:52]}")
-                    logging.info(f"Camera positions (52-54): {state_data[52:54]}")
+            #     if state_dim == 54:
+            #         logging.info("=== 54D State Breakdown ===")
+            #         logging.info(f"Left Arm positions (0-7): {state_data[0:7]}")
+            #         logging.info(f"Right Arm positions (7-14): {state_data[7:14]}")
+            #         logging.info(f"Left Hand positions (14-21): {state_data[14:21]}")
+            #         logging.info(f"Left Hand pressures (21-33): {state_data[21:33]}")
+            #         logging.info(f"Right Hand positions (33-40): {state_data[33:40]}")
+            #         logging.info(f"Right Hand pressures (40-52): {state_data[40:52]}")
+            #         logging.info(f"Camera positions (52-54): {state_data[52:54]}")
 
 
-                if state_dim >= 108:
-                    logging.info("=== Full 108D/110D State Breakdown ===")
-                    logging.info(f"left_arm qpos (0-6): {state_data[0:7]}")
-                    logging.info(f"left_arm qvel (7-13): {state_data[7:14]}")
-                    logging.info(f"left_arm torque (14-20): {state_data[14:21]}")
-                    logging.info(f"right_arm qpos (21-27): {state_data[21:28]}")
-                    logging.info(f"right_arm qvel (28-34): {state_data[28:35]}")
-                    logging.info(f"right_arm torque (35-41): {state_data[35:42]}")
-                    logging.info(f"left_hand qpos (42-48): {state_data[42:49]}")
-                    logging.info(f"left_hand qvel (49-55): {state_data[49:56]}")
-                    logging.info(f"left_hand torque (56-62): {state_data[56:63]}")
-                    logging.info(f"left_hand pressures (63-74): {state_data[63:75]}")
-                    logging.info(f"right_hand qpos (75-81): {state_data[75:82]}")
-                    logging.info(f"right_hand qvel (82-88): {state_data[82:89]}")
-                    logging.info(f"right_hand torque (89-95): {state_data[89:96]}")
-                    logging.info(f"right_hand pressures (96-107): {state_data[96:108]}")
-                    if state_dim >= 110:
-                        logging.info(f"camera qpos (108-109): {state_data[108:110]}")
-                elif state_dim >= 82:
-                    logging.info("=== Legacy 82D State Breakdown ===")
-                    logging.info(f"left_arm qpos (0-6): {state_data[0:7]}")
-                    logging.info(f"left_arm qvel (7-13): {state_data[7:14]}")
-                    logging.info(f"left_arm torque (14-20): {state_data[14:21]}")
-                    logging.info(f"right_arm qpos (21-27): {state_data[21:28]}")
-                    logging.info(f"right_arm qvel (28-34): {state_data[28:35]}")
-                    logging.info(f"right_arm torque (35-41): {state_data[35:42]}")
-                    logging.info(f"left_hand qpos (42-48): {state_data[42:49]}")
-                    logging.info(f"left_hand pressures (49-60): {state_data[49:61]}")
-                    logging.info(f"right_hand qpos (61-67): {state_data[61:68]}")
-                    logging.info(f"right_hand pressures (68-79): {state_data[68:80]}")
-                    logging.info(f"camera qpos (80-81): {state_data[80:82]}")
+            #     if state_dim >= 108:
+            #         logging.info("=== Full 108D/110D State Breakdown ===")
+            #         logging.info(f"left_arm qpos (0-6): {state_data[0:7]}")
+            #         logging.info(f"left_arm qvel (7-13): {state_data[7:14]}")
+            #         logging.info(f"left_arm torque (14-20): {state_data[14:21]}")
+            #         logging.info(f"right_arm qpos (21-27): {state_data[21:28]}")
+            #         logging.info(f"right_arm qvel (28-34): {state_data[28:35]}")
+            #         logging.info(f"right_arm torque (35-41): {state_data[35:42]}")
+            #         logging.info(f"left_hand qpos (42-48): {state_data[42:49]}")
+            #         logging.info(f"left_hand qvel (49-55): {state_data[49:56]}")
+            #         logging.info(f"left_hand torque (56-62): {state_data[56:63]}")
+            #         logging.info(f"left_hand pressures (63-74): {state_data[63:75]}")
+            #         logging.info(f"right_hand qpos (75-81): {state_data[75:82]}")
+            #         logging.info(f"right_hand qvel (82-88): {state_data[82:89]}")
+            #         logging.info(f"right_hand torque (89-95): {state_data[89:96]}")
+            #         logging.info(f"right_hand pressures (96-107): {state_data[96:108]}")
+            #         if state_dim >= 110:
+            #             logging.info(f"camera qpos (108-109): {state_data[108:110]}")
+            #     elif state_dim >= 82:
+            #         logging.info("=== Legacy 82D State Breakdown ===")
+            #         logging.info(f"left_arm qpos (0-6): {state_data[0:7]}")
+            #         logging.info(f"left_arm qvel (7-13): {state_data[7:14]}")
+            #         logging.info(f"left_arm torque (14-20): {state_data[14:21]}")
+            #         logging.info(f"right_arm qpos (21-27): {state_data[21:28]}")
+            #         logging.info(f"right_arm qvel (28-34): {state_data[28:35]}")
+            #         logging.info(f"right_arm torque (35-41): {state_data[35:42]}")
+            #         logging.info(f"left_hand qpos (42-48): {state_data[42:49]}")
+            #         logging.info(f"left_hand pressures (49-60): {state_data[49:61]}")
+            #         logging.info(f"right_hand qpos (61-67): {state_data[61:68]}")
+            #         logging.info(f"right_hand pressures (68-79): {state_data[68:80]}")
+            #         logging.info(f"camera qpos (80-81): {state_data[80:82]}")
 
-                # Print action for comparison
-                if "action" in batch:
-                    action_batch = batch["action"]
-                    logging.info(f"Action batch shape: {action_batch.shape}")
+            #     # Print action for comparison
+            #     if "action" in batch:
+            #         action_batch = batch["action"]
+            #         logging.info(f"Action batch shape: {action_batch.shape}")
                     
-                    # Extract action data - handle different tensor shapes
-                    if len(action_batch.shape) == 3:  # (batch, sequence, features)
-                        action_tensor = action_batch[0, 0]  # First batch, first timestep
-                    elif len(action_batch.shape) == 2:  # (batch, features)
-                        action_tensor = action_batch[0]  # First batch
-                    else:
-                        action_tensor = action_batch.flatten()
+            #         # Extract action data - handle different tensor shapes
+            #         if len(action_batch.shape) == 3:  # (batch, sequence, features)
+            #             action_tensor = action_batch[0, 0]  # First batch, first timestep
+            #         elif len(action_batch.shape) == 2:  # (batch, features)
+            #             action_tensor = action_batch[0]  # First batch
+            #         else:
+            #             action_tensor = action_batch.flatten()
                     
-                    action_data = action_tensor.cpu().numpy()
-                    action_dim = len(action_data) if action_data.ndim == 1 else action_data.shape[0]
+            #         action_data = action_tensor.cpu().numpy()
+            #         action_dim = len(action_data) if action_data.ndim == 1 else action_data.shape[0]
                     
-                    logging.info(f"Action dimension: {action_dim}")
-                    logging.info(f"Action tensor shape: {action_tensor.shape}")
+            #         logging.info(f"Action dimension: {action_dim}")
+            #         logging.info(f"Action tensor shape: {action_tensor.shape}")
                     
-                    if action_dim >= 30:
-                        logging.info(f"Action left arm (0-6): {action_data[0:7]}")
-                        logging.info(f"Action right arm (7-13): {action_data[7:14]}")
-                        logging.info(f"Action left hand (14-20): {action_data[14:21]}")
-                        logging.info(f"Action right hand (21-27): {action_data[21:28]}")
-                        logging.info(f"Action camera (28-29): {action_data[28:30]}")
-                    else:
-                        logging.info(f"Full action vector: {action_data}")
+            #         if action_dim >= 30:
+            #             logging.info(f"Action left arm (0-6): {action_data[0:7]}")
+            #             logging.info(f"Action right arm (7-13): {action_data[7:14]}")
+            #             logging.info(f"Action left hand (14-20): {action_data[14:21]}")
+            #             logging.info(f"Action right hand (21-27): {action_data[21:28]}")
+            #             logging.info(f"Action camera (28-29): {action_data[28:30]}")
+            #         else:
+            #             logging.info(f"Full action vector: {action_data}")
                         
-            except Exception as e:
-                logging.warning(f"Error parsing state vector: {e}")
-                import traceback
-                logging.warning(f"Traceback: {traceback.format_exc()}")
+            # except Exception as e:
+            #     logging.warning(f"Error parsing state vector: {e}")
+            #     import traceback
+            #     logging.warning(f"Traceback: {traceback.format_exc()}")
             
-            logging.info("=== END DEBUG ===")
+            # logging.info("=== END DEBUG ===")
 
         if is_log_step:
             logging.info(train_tracker)
@@ -373,38 +376,38 @@ def train(cfg: TrainPipelineConfig):
             if wandb_logger:
                 wandb_logger.log_policy(checkpoint_dir)
 
-        if cfg.env and is_eval_step:
-            step_id = get_step_identifier(step, cfg.steps)
-            logging.info(f"Eval policy at step {step}")
-            with (
-                torch.no_grad(),
-                torch.autocast(device_type=device.type) if cfg.policy.use_amp else nullcontext(),
-            ):
-                eval_info = eval_policy(
-                    eval_env,
-                    policy,
-                    cfg.eval.n_episodes,
-                    videos_dir=cfg.output_dir / "eval" / f"videos_step_{step_id}",
-                    max_episodes_rendered=4,
-                    start_seed=cfg.seed,
-                )
+        # if cfg.env and is_eval_step:
+        #     step_id = get_step_identifier(step, cfg.steps)
+        #     logging.info(f"Eval policy at step {step}")
+        #     with (
+        #         torch.no_grad(),
+        #         torch.autocast(device_type=device.type) if cfg.policy.use_amp else nullcontext(),
+        #     ):
+        #         eval_info = eval_policy(
+        #             eval_env,
+        #             policy,
+        #             cfg.eval.n_episodes,
+        #             videos_dir=cfg.output_dir / "eval" / f"videos_step_{step_id}",
+        #             max_episodes_rendered=4,
+        #             start_seed=cfg.seed,
+        #         )
 
-            eval_metrics = {
-                "avg_sum_reward": AverageMeter("∑rwrd", ":.3f"),
-                "pc_success": AverageMeter("success", ":.1f"),
-                "eval_s": AverageMeter("eval_s", ":.3f"),
-            }
-            eval_tracker = MetricsTracker(
-                cfg.batch_size, dataset.num_frames, dataset.num_episodes, eval_metrics, initial_step=step
-            )
-            eval_tracker.eval_s = eval_info["aggregated"].pop("eval_s")
-            eval_tracker.avg_sum_reward = eval_info["aggregated"].pop("avg_sum_reward")
-            eval_tracker.pc_success = eval_info["aggregated"].pop("pc_success")
-            logging.info(eval_tracker)
-            if wandb_logger:
-                wandb_log_dict = {**eval_tracker.to_dict(), **eval_info}
-                wandb_logger.log_dict(wandb_log_dict, step, mode="eval")
-                wandb_logger.log_video(eval_info["video_paths"][0], step, mode="eval")
+        #     eval_metrics = {
+        #         "avg_sum_reward": AverageMeter("∑rwrd", ":.3f"),
+        #         "pc_success": AverageMeter("success", ":.1f"),
+        #         "eval_s": AverageMeter("eval_s", ":.3f"),
+        #     }
+        #     eval_tracker = MetricsTracker(
+        #         cfg.batch_size, dataset.num_frames, dataset.num_episodes, eval_metrics, initial_step=step
+        #     )
+        #     eval_tracker.eval_s = eval_info["aggregated"].pop("eval_s")
+        #     eval_tracker.avg_sum_reward = eval_info["aggregated"].pop("avg_sum_reward")
+        #     eval_tracker.pc_success = eval_info["aggregated"].pop("pc_success")
+        #     logging.info(eval_tracker)
+        #     if wandb_logger:
+        #         wandb_log_dict = {**eval_tracker.to_dict(), **eval_info}
+        #         wandb_logger.log_dict(wandb_log_dict, step, mode="eval")
+        #         wandb_logger.log_video(eval_info["video_paths"][0], step, mode="eval")
 
     if eval_env:
         eval_env.close()
