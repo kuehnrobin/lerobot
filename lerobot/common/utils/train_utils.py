@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import logging
+import os
 from pathlib import Path
 
 from termcolor import colored
@@ -96,6 +97,12 @@ def save_checkpoint(
         optimizer (Optimizer | None, optional): The optimizer to save the state from. Defaults to None.
         scheduler (LRScheduler | None, optional): The scheduler to save the state from. Defaults to None.
     """
+    try:
+        # Set optimal striping for checkpoint directory (all OSTs, 4MB stripe size)
+        os.system(f"lfs setstripe -c -1 -S 4M {checkpoint_dir}")
+    except Exception as e:
+        logging.warning(f"Could not set Lustre striping: {e}")
+    
     pretrained_dir = checkpoint_dir / PRETRAINED_MODEL_DIR
     policy.save_pretrained(pretrained_dir)
     cfg.save_pretrained(pretrained_dir)
@@ -121,6 +128,12 @@ def save_training_state(
     """
     save_dir = checkpoint_dir / TRAINING_STATE_DIR
     save_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        # Set optimal striping for training state directory (all OSTs, 4MB stripe size)
+        os.system(f"lfs setstripe -c -1 -S 4M {save_dir}")
+    except Exception as e:
+        logging.warning(f"Could not set Lustre striping for training state: {e}")   
+    
     save_training_step(train_step, save_dir)
     save_rng_state(save_dir)
     if optimizer is not None:
