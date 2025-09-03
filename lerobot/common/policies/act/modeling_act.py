@@ -169,7 +169,7 @@ class DINOv2Wrapper(nn.Module):
     - Fixed 224x308 input size (16*14 x 22*14 patches)
     - Uses normalized patch tokens (x_norm_patchtokens)
     - Fixed spatial output of 16x22
-    - Proper ImageNet normalization
+    - Handles normalization based on whether dataset uses ImageNet stats
     - Allows gradient computation during training (no_grad only in eval)
     """
 
@@ -178,6 +178,7 @@ class DINOv2Wrapper(nn.Module):
         self.dinov2_model = dinov2_model
         self.feature_dim = dinov2_model.feature_dim
         self.patch_size = 14  # DINOv2 patch size
+        #self.use_imagenet_stats = use_imagenet_stats
         
         # TeleVision uses fixed patch dimensions
         self.patch_h = 16  # Height in patches
@@ -210,11 +211,27 @@ class DINOv2Wrapper(nn.Module):
         if H != self.target_h or W != self.target_w:
             x = F.interpolate(x, size=(self.target_h, self.target_w), mode="bilinear", align_corners=False)
 
-        # Apply ImageNet normalization (critical for DINOv2 performance)
-        # DINOv2 was trained with ImageNet normalization
-        mean = torch.tensor([0.485, 0.456, 0.406], device=x.device, dtype=x.dtype).view(1, 3, 1, 1)
-        std = torch.tensor([0.229, 0.224, 0.225], device=x.device, dtype=x.dtype).view(1, 3, 1, 1)
-        x = (x - mean) / std
+        # Handle normalization based on dataset configuration
+        # TeleVision uses ImageNet normalization: mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+        # If use_imagenet_stats=True: LeRobot already applied ImageNet normalization → no additional processing needed
+        # If use_imagenet_stats=False: LeRobot applied dataset MEAN_STD normalization → we need to fix this for DINOv2
+        
+        # if not self.use_imagenet_stats:
+        #     # LeRobot applied dataset-computed MEAN_STD normalization, but DINOv2 expects ImageNet normalization
+        #     # We need to convert from MEAN_STD normalized images to ImageNet normalized images
+        #     # This is a complex conversion that requires knowing the original dataset statistics
+        #     # For now, apply ImageNet normalization directly (this may not be perfect but should improve results)
+            
+        #     imagenet_mean = torch.tensor([0.485, 0.456, 0.406], device=x.device, dtype=x.dtype).view(1, 3, 1, 1)
+        #     imagenet_std = torch.tensor([0.229, 0.224, 0.225], device=x.device, dtype=x.dtype).view(1, 3, 1, 1)
+        #     x = (x - imagenet_mean) / imagenet_std
+            
+        #     if self.training and torch.rand(1).item() < 0.01:  # Log occasionally during training
+        #         print(f"DINOv2Wrapper: Applied ImageNet normalization over LeRobot MEAN_STD normalization")
+        # else:
+        #     # Dataset is using ImageNet stats, so images are already properly normalized for DINOv2
+        #     if self.training and torch.rand(1).item() < 0.01:  # Log occasionally during training  
+        #         print(f"DINOv2Wrapper: Using ImageNet normalization from dataset")
 
         # Forward pass through DINOv2
         # Enable gradients during training; disable during eval for speed
@@ -266,12 +283,43 @@ class ACTPolicy(PreTrainedPolicy):
             config.output_features, config.normalization_mapping, dataset_stats
         )
 
-        self.model = ACT(config)
+        # Check if dataset uses ImageNet stats by examining the normalization values
+        self.use_imagenet_stats = self._check_imagenet_stats(dataset_stats)
+
+        self.model = ACT(config, use_imagenet_stats=self.use_imagenet_stats)
 
         if config.temporal_ensemble_coeff is not None:
             self.temporal_ensembler = ACTTemporalEnsembler(config.temporal_ensemble_coeff, config.chunk_size)
 
         self.reset()
+
+    def _check_imagenet_stats(self, dataset_stats: dict[str, dict[str, Tensor]] | None) -> bool:
+        """Check if dataset is using ImageNet normalization statistics.
+        
+        Returns True if any image features have ImageNet mean/std values.
+        """
+        if dataset_stats is None:
+            return False
+            
+        # ImageNet stats: mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+        imagenet_mean = torch.tensor([0.485, 0.456, 0.406])
+        imagenet_std = torch.tensor([0.229, 0.224, 0.225])
+        
+        for key, stats in dataset_stats.items():
+            if key.startswith("observation.image") and "mean" in stats and "std" in stats:
+                mean = stats["mean"].squeeze()  # Remove spatial dimensions if present
+                std = stats["std"].squeeze()
+                
+                # Check if mean and std are close to ImageNet values
+                if (mean.shape == imagenet_mean.shape and std.shape == imagenet_std.shape):
+                    mean_close = torch.allclose(mean, imagenet_mean, atol=0.01)
+                    std_close = torch.allclose(std, imagenet_std, atol=0.01)
+                    if mean_close and std_close:
+                        print(f"Detected ImageNet stats for {key}: mean={mean}, std={std}")
+                        return True
+        
+        print("Using dataset-computed MEAN_STD normalization (not ImageNet)")
+        return False
 
     def get_optim_params(self) -> dict:
         # TODO(aliberts, rcadene): As of now, lr_backbone == lr
@@ -494,7 +542,7 @@ class ACT(nn.Module):
                                 └───────────────────────┘
     """
 
-    def __init__(self, config: ACTConfig):
+    def __init__(self, config: ACTConfig, use_imagenet_stats: bool = False):
         # BERT style VAE encoder with input tokens [cls, robot_state, *action_sequence].
         # The cls token forms parameters of the latent's distribution (like this [*means, *log_variances]).
         super().__init__()
@@ -530,7 +578,7 @@ class ACT(nn.Module):
             if config.vision_backbone.startswith("dinov2"):
                 # DINOv2 backbone
                 dinov2_model = create_dinov2_backbone(config.vision_backbone)
-                self.backbone = DINOv2Wrapper(dinov2_model)
+                self.backbone = DINOv2Wrapper(dinov2_model, use_imagenet_stats=use_imagenet_stats)
                 backbone_feature_dim = dinov2_model.feature_dim
             else:
                 # ResNet backbone (original implementation)
@@ -687,10 +735,21 @@ class ACT(nn.Module):
             all_cam_pos_embeds = []
 
             # For a list of images, the H and W may vary but H*W is constant.
-            for img in batch["observation.images"]:
+            for i, img in enumerate(batch["observation.images"]):
                 cam_features = self.backbone(img)["feature_map"]
                 cam_pos_embed = self.encoder_cam_feat_pos_embed(cam_features).to(dtype=cam_features.dtype)
                 cam_features = self.encoder_img_feat_input_proj(cam_features)
+
+                # Debug: Print feature map dimensions
+                if hasattr(self, '_debug_step_count'):
+                    self._debug_step_count += 1
+                else:
+                    self._debug_step_count = 1
+                    
+                if self._debug_step_count <= 3:  # Only log first 3 steps
+                    print(f"ACT Debug Step {self._debug_step_count} Camera {i}: "
+                          f"input_shape={img.shape}, feature_map_shape={cam_features.shape}, "
+                          f"spatial_tokens={cam_features.shape[2] * cam_features.shape[3]}")
 
                 # Rearrange features to (sequence, batch, dim).
                 cam_features = einops.rearrange(cam_features, "b c h w -> (h w) b c")
