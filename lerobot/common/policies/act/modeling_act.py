@@ -578,7 +578,7 @@ class ACT(nn.Module):
             if config.vision_backbone.startswith("dinov2"):
                 # DINOv2 backbone
                 dinov2_model = create_dinov2_backbone(config.vision_backbone)
-                self.backbone = DINOv2Wrapper(dinov2_model, use_imagenet_stats=use_imagenet_stats)
+                self.backbone = DINOv2Wrapper(dinov2_model)
                 backbone_feature_dim = dinov2_model.feature_dim
             else:
                 # ResNet backbone (original implementation)
