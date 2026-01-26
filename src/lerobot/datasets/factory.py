@@ -27,7 +27,7 @@ from lerobot.datasets.lerobot_dataset import (
 )
 from lerobot.datasets.streaming_dataset import StreamingLeRobotDataset
 from lerobot.datasets.transforms import ImageTransforms
-from lerobot.datasets.feature_filter import create_filtered_dataset_wrapper
+from lerobot.datasets.unified_ablation_framework import create_filtered_dataset_wrapper
 from lerobot.utils.constants import ACTION, OBS_PREFIX, REWARD
 
 IMAGENET_STATS = {
