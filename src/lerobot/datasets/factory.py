@@ -27,6 +27,7 @@ from lerobot.datasets.lerobot_dataset import (
 )
 from lerobot.datasets.streaming_dataset import StreamingLeRobotDataset
 from lerobot.datasets.transforms import ImageTransforms
+from lerobot.datasets.feature_filter import create_filtered_dataset_wrapper
 from lerobot.utils.constants import ACTION, OBS_PREFIX, REWARD
 
 IMAGENET_STATS = {
@@ -129,5 +130,27 @@ def make_dataset(cfg: TrainPipelineConfig) -> LeRobotDataset | MultiLeRobotDatas
         for key in dataset.meta.camera_keys:
             for stats_type, stats in IMAGENET_STATS.items():
                 dataset.meta.stats[key][stats_type] = torch.tensor(stats, dtype=torch.float32)
+
+    # Apply feature filtering if configured
+    if hasattr(cfg, 'feature_selection') and cfg.feature_selection is not None:
+        # Check if any filtering is actually requested
+        fs = cfg.feature_selection
+        has_filtering = (
+            fs.cameras is not None or
+            fs.exclude_cameras is not None or
+            not fs.use_joint_positions or
+            not fs.use_arm_joint_velocities or
+            not fs.use_arm_joint_torques or
+            not fs.use_hand_joint_velocities or
+            not fs.use_hand_joint_torques or
+            not fs.use_pressure_sensors or
+            fs.joint_groups is not None or
+            fs.exclude_joint_groups is not None or
+            fs.custom_state_indices is not None
+        )
+        
+        if has_filtering:
+            logging.info("Applying feature filtering to dataset")
+            dataset = create_filtered_dataset_wrapper(dataset, cfg.feature_selection)
 
     return dataset
