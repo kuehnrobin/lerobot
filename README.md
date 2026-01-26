@@ -14,6 +14,38 @@
 
 </div>
 
+> [!NOTE]
+> **🎯 Feature Masking for Ablation Studies**
+>
+> This fork adds a **Unified Ablation Framework** that enables selective masking of dataset features during training without recreating entire datasets. This is useful for ablation studies comparing the impact of different sensor combinations (cameras, joint velocities, torques, pressure sensors) on imitation learning performance.
+>
+> **Quick Usage:**
+> ```python
+> from lerobot.datasets.unified_ablation_framework import create_filtered_dataset_wrapper
+> from lerobot.configs.train import FeatureSelectionConfig
+> 
+> # Configure which features to use
+> feature_config = FeatureSelectionConfig(
+>     cameras=["cam_head_left", "cam_head_right"],  # Select specific cameras
+>     use_arm_joint_velocities=False,  # Disable arm velocities
+>     use_pressure_sensors=False  # Disable tactile sensors
+> )
+> 
+> # Wrap your dataset
+> filtered_dataset = create_filtered_dataset_wrapper(original_dataset, feature_config)
+> ```
+>
+> Train with feature selection via command line:
+> ```bash
+> lerobot-train \
+>   --policy=act \
+>   --dataset.repo_id=lerobot/aloha_mobile_cabinet \
+>   --feature_selection.cameras="['cam_head_left']" \
+>   --feature_selection.use_arm_joint_velocities=false
+> ```
+>
+> See [`src/lerobot/datasets/unified_ablation_framework.py`](src/lerobot/datasets/unified_ablation_framework.py) for full configuration options.
+
 **LeRobot** aims to provide models, datasets, and tools for real-world robotics in PyTorch. The goal is to lower the barrier to entry so that everyone can contribute to and benefit from shared datasets and pretrained models.
 
 🤗 A hardware-agnostic, Python-native interface that standardizes control across diverse platforms, from low-cost arms (SO-100) to humanoids.
